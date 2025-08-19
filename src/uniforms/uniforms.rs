@@ -1,4 +1,5 @@
-use uniforms::{Uniforms, UniformValue, AsUniformValue};
+use crate::uniforms::{Uniforms, UniformValue, AsUniformValue};
+use std::collections::HashMap;
 
 /// Object that can be used when you don't have any uniforms.
 #[derive(Debug, Copy, Clone)]
@@ -11,6 +12,7 @@ impl Uniforms for EmptyUniforms {
 }
 
 /// Stores uniforms.
+#[derive(Copy, Clone)]
 pub struct UniformsStorage<'n, T, R> where T: AsUniformValue, R: Uniforms {
     name: &'n str,
     value: T,
@@ -24,8 +26,8 @@ impl<'n, T> UniformsStorage<'n, T, EmptyUniforms> where T: AsUniformValue {
                -> UniformsStorage<'n, T, EmptyUniforms>
     {
         UniformsStorage {
-            name: name,
-            value: value,
+            name,
+            value,
             rest: EmptyUniforms,
         }
     }
@@ -39,8 +41,8 @@ impl<'n, T, R> UniformsStorage<'n, T, R> where T: AsUniformValue, R: Uniforms {
                   where U: AsUniformValue
     {
         UniformsStorage {
-            name: name,
-            value: value,
+            name,
+            value,
             rest: self,
         }
     }
@@ -51,5 +53,34 @@ impl<'n, T, R> Uniforms for UniformsStorage<'n, T, R> where T: AsUniformValue, R
     fn visit_values<'a, F: FnMut(&str, UniformValue<'a>)>(&'a self, mut output: F) {
         output(self.name, self.value.as_uniform_value());
         self.rest.visit_values(output);
+    }
+}
+
+/// Stores Uniforms dynamicly in a HashMap.
+#[derive(Clone)]
+pub struct DynamicUniforms<'a, 's>{
+    map: HashMap<&'s str, UniformValue<'a>>,
+}
+
+impl<'a, 's> DynamicUniforms<'a, 's>{
+    /// Creates new DynamicUniforms
+    pub fn new() -> Self{
+        Self{
+            map: HashMap::new()
+        }
+    }
+
+    /// Add a value to the DynamicUniforms
+    #[inline]
+    pub fn add(&mut self, key: &'s str, value: &'a dyn AsUniformValue){
+        self.map.insert(key, value.as_uniform_value());
+    }
+}
+
+impl Uniforms for DynamicUniforms<'_, '_>{
+    fn visit_values<'a, F: FnMut(&str, UniformValue<'a>)>(&'a self, mut output: F) {
+        for (key, value) in self.map.iter(){
+            output(key, *value);
+        }
     }
 }

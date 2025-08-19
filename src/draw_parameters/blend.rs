@@ -1,9 +1,9 @@
-use context::CommandContext;
-use version::Api;
-use version::Version;
+use crate::context::CommandContext;
+use crate::version::Api;
+use crate::version::Version;
 
-use DrawError;
-use gl;
+use crate::DrawError;
+use crate::gl;
 
 /// Blend effect that the GPU will use for blending.
 ///
@@ -89,7 +89,7 @@ pub enum BlendingFunction {
         destination: LinearBlendingFactor,
     },
 
-    /// For each individual component (red, green, blue, and alpha), a weighted substraction
+    /// For each individual component (red, green, blue, and alpha), a weighted subtraction
     /// of the source by the destination.
     ///
     /// The result is equal to `source_component * source_factor - dest_component * dest_factor`,
@@ -103,7 +103,7 @@ pub enum BlendingFunction {
         destination: LinearBlendingFactor,
     },
 
-    /// For each individual component (red, green, blue, and alpha), a weighted substraction
+    /// For each individual component (red, green, blue, and alpha), a weighted subtraction
     /// of the destination by the source.
     ///
     /// The result is equal to `-source_component * source_factor + dest_component * dest_factor`,
@@ -168,16 +168,32 @@ pub enum LinearBlendingFactor {
     /// in `Blend::const_value`.
     ConstantColor,
 
-    /// Multiply the source or destination compoent by `1.0` minus the corresponding
+    /// Multiply the source or destination component by `1.0` minus the corresponding
     /// value in `Blend::const_value`.
     OneMinusConstantColor,
 
     /// Multiply the source or destination component by the alpha value of `Blend::const_value`.
     ConstantAlpha,
 
-    /// Multiply the source or destination componet by `1.0` minus the alpha value of
+    /// Multiply the source or destination component by `1.0` minus the alpha value of
     /// `Blend::const_value`.
     OneMinusConstantAlpha,
+
+    /// Multiply the source or destination component by its corresponding value
+    /// in source index one (you need to explicitly specify `layout(location=0, index=1)`
+    /// to bind it in your shader.
+    /// This is useful in Dual Source Blending
+    /// <https://www.khronos.org/registry/OpenGL/extensions/ARB/ARB_blend_func_extended.txt>
+    SourceOneColor,
+
+    /// Equivalent to `1 - SourceOneColor`.
+    OneMinusSourceOneColor,
+
+    /// Multiply the source or destination component by the alpha value of source index 1.
+    SourceOneAlpha,
+
+    /// Multiply the source or destination component by `1.0` minus the alpha value of source index 1.
+    OneMinusSourceOneAlpha,
 }
 
 impl LinearBlendingFactor {
@@ -198,13 +214,18 @@ impl LinearBlendingFactor {
             LinearBlendingFactor::OneMinusConstantColor => gl::ONE_MINUS_CONSTANT_COLOR,
             LinearBlendingFactor::ConstantAlpha => gl::CONSTANT_ALPHA,
             LinearBlendingFactor::OneMinusConstantAlpha => gl::ONE_MINUS_CONSTANT_ALPHA,
+            LinearBlendingFactor::SourceOneColor => gl::SRC1_COLOR,
+            LinearBlendingFactor::OneMinusSourceOneColor => gl::ONE_MINUS_SRC1_COLOR,
+            LinearBlendingFactor::SourceOneAlpha => gl::SRC1_ALPHA,
+            LinearBlendingFactor::OneMinusSourceOneAlpha => gl::ONE_MINUS_SRC1_ALPHA,
+
         }
     }
 }
 
-pub fn sync_blending(ctxt: &mut CommandContext, blend: Blend) -> Result<(), DrawError> {
+pub fn sync_blending(ctxt: &mut CommandContext<'_>, blend: Blend) -> Result<(), DrawError> {
     #[inline(always)]
-    fn blend_eq(ctxt: &mut CommandContext, blending_function: BlendingFunction)
+    fn blend_eq(ctxt: &mut CommandContext<'_>, blending_function: BlendingFunction)
                 -> Result<gl::types::GLenum, DrawError>
     {
         match blending_function {
@@ -267,8 +288,8 @@ pub fn sync_blending(ctxt: &mut CommandContext, blend: Blend) -> Result<(), Draw
             ctxt.state.enabled_blend = true;
         }
 
-        let (color_eq, alpha_eq) = (try!(blend_eq(ctxt, blend.color)),
-                                    try!(blend_eq(ctxt, blend.alpha)));
+        let (color_eq, alpha_eq) = (blend_eq(ctxt, blend.color)?,
+                                    blend_eq(ctxt, blend.alpha)?);
         if ctxt.state.blend_equation != (color_eq, alpha_eq) {
             unsafe { ctxt.gl.BlendEquationSeparate(color_eq, alpha_eq); }
             ctxt.state.blend_equation = (color_eq, alpha_eq);
@@ -281,7 +302,7 @@ pub fn sync_blending(ctxt: &mut CommandContext, blend: Blend) -> Result<(), Draw
             .unwrap_or((LinearBlendingFactor::One, LinearBlendingFactor::Zero));
 
         // Updating the blending color if necessary.
-        if color_factor_src == LinearBlendingFactor::ConstantColor ||
+        if (color_factor_src == LinearBlendingFactor::ConstantColor ||
            color_factor_src == LinearBlendingFactor::OneMinusConstantColor ||
            color_factor_dst == LinearBlendingFactor::ConstantColor ||
            color_factor_dst == LinearBlendingFactor::OneMinusConstantColor ||
@@ -296,13 +317,10 @@ pub fn sync_blending(ctxt: &mut CommandContext, blend: Blend) -> Result<(), Draw
            alpha_factor_src == LinearBlendingFactor::ConstantAlpha ||
            alpha_factor_src == LinearBlendingFactor::OneMinusConstantAlpha ||
            alpha_factor_dst == LinearBlendingFactor::ConstantAlpha ||
-           alpha_factor_dst == LinearBlendingFactor::OneMinusConstantAlpha
-        {
-            if ctxt.state.blend_color != blend.constant_value {
-                let (r, g, b, a) = blend.constant_value;
-                unsafe { ctxt.gl.BlendColor(r, g, b, a); }
-                ctxt.state.blend_color = blend.constant_value;
-            }
+           alpha_factor_dst == LinearBlendingFactor::OneMinusConstantAlpha) && ctxt.state.blend_color != blend.constant_value {
+            let (r, g, b, a) = blend.constant_value;
+            unsafe { ctxt.gl.BlendColor(r, g, b, a); }
+            ctxt.state.blend_color = blend.constant_value;
         }
 
         // Updating the blending function if necessary.

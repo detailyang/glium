@@ -1,5 +1,3 @@
-extern crate glutin;
-
 pub struct CameraState {
     aspect_ratio: f32,
     position: (f32, f32, f32),
@@ -150,23 +148,19 @@ impl CameraState {
         }
     }
 
-    pub fn process_input(&mut self, event: &glutin::WindowEvent) {
-        let input = match *event {
-            glutin::WindowEvent::KeyboardInput { input, .. } => input,
-            _ => return,
+    pub fn process_input(&mut self, event: &glium::winit::event::WindowEvent) {
+        use glium::winit::keyboard::{PhysicalKey, KeyCode};
+        let glium::winit::event::WindowEvent::KeyboardInput { event, .. } = event else {
+            return
         };
-        let pressed = input.state == glutin::ElementState::Pressed;
-        let key = match input.virtual_keycode {
-            Some(key) => key,
-            None => return,
-        };
-        match key {
-            glutin::VirtualKeyCode::Up => self.moving_up = pressed,
-            glutin::VirtualKeyCode::Down => self.moving_down = pressed,
-            glutin::VirtualKeyCode::A => self.moving_left = pressed,
-            glutin::VirtualKeyCode::D => self.moving_right = pressed,
-            glutin::VirtualKeyCode::W => self.moving_forward = pressed,
-            glutin::VirtualKeyCode::S => self.moving_backward = pressed,
+        let pressed = event.state == glium::winit::event::ElementState::Pressed;
+        match &event.physical_key {
+            PhysicalKey::Code(KeyCode::ArrowUp) => self.moving_up = pressed,
+            PhysicalKey::Code(KeyCode::ArrowDown) => self.moving_down = pressed,
+            PhysicalKey::Code(KeyCode::KeyA) => self.moving_left = pressed,
+            PhysicalKey::Code(KeyCode::KeyD) => self.moving_right = pressed,
+            PhysicalKey::Code(KeyCode::KeyW) => self.moving_forward = pressed,
+            PhysicalKey::Code(KeyCode::KeyS) => self.moving_backward = pressed,
             _ => (),
         };
     }

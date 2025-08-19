@@ -2,22 +2,22 @@ use std::ptr;
 use std::fmt;
 use std::error::Error;
 
-use pixel_buffer::PixelBuffer;
-use texture::ClientFormat;
-use texture::PixelValue;
-use image_format::{TextureFormatRequest, TextureFormat};
+use crate::pixel_buffer::PixelBuffer;
+use crate::texture::ClientFormat;
+use crate::texture::PixelValue;
+use crate::image_format::{TextureFormatRequest, TextureFormat};
 
-use fbo;
-use fbo::FramebuffersContainer;
+use crate::fbo;
+use crate::fbo::FramebuffersContainer;
 
-use buffer::BufferAny;
-use BufferExt;
-use Rect;
-use context::CommandContext;
-use gl;
+use crate::buffer::BufferAny;
+use crate::BufferExt;
+use crate::Rect;
+use crate::context::CommandContext;
+use crate::gl;
 
-use version::Version;
-use version::Api;
+use crate::version::Version;
+use crate::version::Api;
 
 /// A source for reading pixels.
 pub enum Source<'a> {
@@ -77,33 +77,30 @@ pub enum ReadError {
 }
 
 impl fmt::Display for ReadError {
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-        write!(fmt, "{}", self.description())
-    }
-}
-
-impl Error for ReadError {
-    fn description(&self) -> &str {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         use self::ReadError::*;
-        match *self {
+        let desc = match *self {
             OutputFormatNotSupported =>
                 "The implementation doesn't support converting to the requested output format",
             AttachmentTypeNotSupported =>
                 "The implementation doesn't support reading a depth, depth-stencil or stencil attachment",
             ClampingNotSupported =>
                 "Clamping the values is not supported by the implementation",
-        }
+        };
+        fmt.write_str(desc)
     }
 }
 
+impl Error for ReadError {}
+
 /// Reads pixels from the source into the destination.
 ///
-/// Panicks if the destination is not large enough.
+/// Panics if the destination is not large enough.
 ///
 /// The `(u8, u8, u8, u8)` format is guaranteed to be supported.
 // TODO: differentiate between GL_* and GL_*_INTEGER
 #[inline]
-pub fn read<'a, S, D, T>(mut ctxt: &mut CommandContext, source: S, rect: &Rect, dest: D,
+pub fn read<'a, S, D, T>(mut ctxt: &mut CommandContext<'_>, source: S, rect: &Rect, dest: D,
                          clamp: bool) -> Result<(), ReadError>
                          where S: Into<Source<'a>>, D: Into<Destination<'a, T>>,
                                T: PixelValue
@@ -135,10 +132,8 @@ pub fn read<'a, S, D, T>(mut ctxt: &mut CommandContext, source: S, rect: &Rect, 
                 ctxt.state.clamp_color = gl::FALSE as gl::types::GLenum;
             }
         }
-    } else {
-        if clamp {
-            return Err(ReadError::ClampingNotSupported);
-        }
+    } else if clamp {
+        return Err(ReadError::ClampingNotSupported);
     }
 
     // TODO: check dimensions?
@@ -158,7 +153,7 @@ pub fn read<'a, S, D, T>(mut ctxt: &mut CommandContext, source: S, rect: &Rect, 
     let (integer, read_src_type) = match source {
         Source::Attachment(attachment) => {
             match attachment {
-                &fbo::RegularAttachment::Texture(ref tex) => {
+                fbo::RegularAttachment::Texture(ref tex) => {
                     let integer = match tex.get_texture().get_requested_format() {
                         TextureFormatRequest::Specific(TextureFormat::UncompressedIntegral(_)) => true,
                         TextureFormatRequest::Specific(TextureFormat::UncompressedUnsigned(_)) => true,
@@ -169,7 +164,7 @@ pub fn read<'a, S, D, T>(mut ctxt: &mut CommandContext, source: S, rect: &Rect, 
 
                     (integer, ReadSourceType::Color)       // FIXME: wrong
                 },
-                &fbo::RegularAttachment::RenderBuffer(ref rb) => {
+                fbo::RegularAttachment::RenderBuffer(ref rb) => {
                     (false, ReadSourceType::Color)       // FIXME: wrong
                 },
             }
@@ -253,7 +248,7 @@ pub fn read<'a, S, D, T>(mut ctxt: &mut CommandContext, source: S, rect: &Rect, 
                                    rect.height as gl::types::GLsizei, format, gltype,
                                    ptr::null_mut());
 
-                ::pixel_buffer::store_infos(pixel_buffer, (rect.width, rect.height));
+                crate::pixel_buffer::store_infos(pixel_buffer, (rect.width, rect.height));
             }
         }
     };
@@ -293,6 +288,7 @@ fn client_format_to_gl_enum(format: &ClientFormat, integer: bool)
         ClientFormat::U5U6U5 => (gl::RGB, gl::UNSIGNED_SHORT_5_6_5),
         ClientFormat::U4U4U4U4 => (gl::RGBA, gl::UNSIGNED_SHORT_4_4_4_4),
         ClientFormat::U5U5U5U1 => (gl::RGBA, gl::UNSIGNED_SHORT_5_5_5_1),
+        ClientFormat::U1U5U5U5Reversed => (gl::RGBA, gl::UNSIGNED_SHORT_1_5_5_5_REV),
         ClientFormat::U10U10U10U2 => (gl::RGBA, gl::UNSIGNED_INT_10_10_10_2),
         ClientFormat::F16 => (gl::RED, gl::HALF_FLOAT),
         ClientFormat::F16F16 => (gl::RG, gl::HALF_FLOAT),

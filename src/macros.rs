@@ -39,8 +39,7 @@ macro_rules! assert_no_gl_error {
 /// ## Example
 ///
 /// ```rust
-/// # #[macro_use]
-/// # extern crate glium;
+/// # use glium::uniform;
 /// # fn main() {
 /// let uniforms = uniform! {
 ///     color: [1.0, 1.0, 0.0, 1.0],
@@ -69,7 +68,42 @@ macro_rules! uniform {
     };
 
     ($($field:ident: $value:expr),*,) => {
-        uniform!($($field: $value),*)
+        $crate::uniform!($($field: $value),*)
+    };
+}
+
+/// Returns a Dynamic Uniforms Container to which values can be added later.
+///
+/// ## Example
+///
+/// ```rust
+/// # #[macro_use] extern crate glium;
+/// # use glium::uniform;
+/// # fn main(){
+///     let mut uniforms = dynamic_uniform!{
+///         color: &[1.0, 1.0, 0.0, 1.0],
+///         some_value: &12i32,
+///     };
+///
+///     uniforms.add("another_value", &1.5f32);
+/// # }
+/// ```
+///
+///
+#[macro_export]
+macro_rules! dynamic_uniform{
+    () => {
+        $crate::uniforms::DynamicUniforms::new()
+    };
+
+    ($($field:ident: $value:expr), *,) => {
+        {
+            let mut tmp = $crate::uniforms::DynamicUniforms::new();
+            $(
+                tmp.add(stringify!($field), $value);
+            )*
+            tmp
+        }
     };
 }
 
@@ -77,11 +111,14 @@ macro_rules! uniform {
 ///
 /// The parameters must be the name of the struct and the names of its fields.
 ///
+/// ## Safety
+///
+/// You must not use this macro on any struct with fields that cannot be zeroed.
+///
 /// ## Example
 ///
 /// ```
-/// # #[macro_use]
-/// # extern crate glium;
+/// # use glium::implement_vertex;
 /// # fn main() {
 /// #[derive(Copy, Clone)]
 /// struct Vertex {
@@ -93,82 +130,149 @@ macro_rules! uniform {
 /// # }
 /// ```
 ///
+/// ## Naming convention
+///
+/// If not using the location option, when it comes to using to using your vertex array in a shader you must make sure that all your attribute variables *match* the field names in the struct you are calling calling this macro for.
+///
+/// So, if you have a `vertex_position` attribute/input in your shader, a field named `vertex_position` must be present in the struct. Otherwise the drawing functions will panic.
+///
+/// ## Normalize option
+///
+/// You can specify a normalize option for attributes.
+/// ```
+/// # #[derive(Clone, Copy)]
+/// # struct Vertex {
+/// #     position: [f32; 2],
+/// #     tex_coords: [f32; 2],
+/// # }
+/// # use glium::implement_vertex;
+/// # fn main() {
+/// implement_vertex!(Vertex, position normalize(false), tex_coords normalize(false));
+/// # }
+/// ```
+/// ## Location option
+///
+/// You can specify a location option for attributes.
+/// ```
+/// # #[derive(Clone, Copy)]
+/// # struct Vertex {
+/// #     position: [f32; 2],
+/// #     tex_coords: [f32; 2],
+/// # }
+/// # use glium::implement_vertex;
+/// # fn main() {
+/// implement_vertex!(Vertex, position location(0), tex_coords location(1));
+/// # }
+/// ```
 #[macro_export]
 macro_rules! implement_vertex {
     ($struct_name:ident, $($field_name:ident),+) => (
+        impl $struct_name {
+            const BINDINGS: $crate::vertex::VertexFormat = &[
+                $(
+                    (
+                        std::borrow::Cow::Borrowed(stringify!($field_name)),
+                        $crate::__glium_offset_of!($struct_name, $field_name),
+                        -1,
+                        {
+                            const fn attr_type_of_val<T: $crate::vertex::Attribute>(_: Option<&T>)
+                                -> $crate::vertex::AttributeType
+                            {
+                                <T as $crate::vertex::Attribute>::TYPE
+                            }
+                            let field_option = match None::<&$struct_name> {
+                                Some(v) => Some(&v.$field_name),
+                                None => None
+                            };
+                            attr_type_of_val(field_option)
+                        },
+                        false
+                    )
+                ),+
+            ];
+        }
+
         impl $crate::vertex::Vertex for $struct_name {
             #[inline]
             fn build_bindings() -> $crate::vertex::VertexFormat {
-                use std::borrow::Cow;
-
-                // TODO: use a &'static [] if possible
-
-                Cow::Owned(vec![
-                    $(
-                        (
-                            Cow::Borrowed(stringify!($field_name)),
-                            {
-                                let dummy: &$struct_name = unsafe { ::std::mem::transmute(0usize) };
-                                let dummy_field = &dummy.$field_name;
-                                let dummy_field: usize = unsafe { ::std::mem::transmute(dummy_field) };
-                                dummy_field
-                            },
-                            {
-                                fn attr_type_of_val<T: $crate::vertex::Attribute>(_: &T)
-                                    -> $crate::vertex::AttributeType
-                                {
-                                    <T as $crate::vertex::Attribute>::get_type()
-                                }
-                                let dummy: &$struct_name = unsafe { ::std::mem::transmute(0usize) };
-                                attr_type_of_val(&dummy.$field_name)
-                            },
-                            false
-                        )
-                    ),+
-                ])
+                Self::BINDINGS
             }
         }
     );
 
     ($struct_name:ident, $($field_name:ident normalize($should_normalize:expr)),+) => {
+        impl $struct_name {
+            const BINDINGS: $crate::vertex::VertexFormat = &[
+                $(
+                    (
+                        std::borrow::Cow::Borrowed(stringify!($field_name)),
+                        $crate::__glium_offset_of!($struct_name, $field_name),
+                        -1,
+                        {
+                            const fn attr_type_of_val<T: $crate::vertex::Attribute>(_: Option<&T>)
+                                -> $crate::vertex::AttributeType
+                            {
+                                <T as $crate::vertex::Attribute>::TYPE
+                            }
+                            let field_option = match None::<&$struct_name> {
+                                Some(v) => Some(&v.$field_name),
+                                None => None
+                            };
+                            attr_type_of_val(field_option)
+                        },
+                        {
+                            $should_normalize
+                        }
+                    )
+                ),+
+            ];
+        }
         impl $crate::vertex::Vertex for $struct_name {
             #[inline]
             fn build_bindings() -> $crate::vertex::VertexFormat {
-                use std::borrow::Cow;
+                Self::BINDINGS
+            }
+        }
+    };
 
-                // TODO: use a &'static [] if possible
-
-                Cow::Owned(vec![
-                    $(
-                        (
-                            Cow::Borrowed(stringify!($field_name)),
+    ($struct_name:ident, $($field_name:ident location($location:expr)),+) => {
+        impl $struct_name {
+            const BINDINGS: $crate::vertex::VertexFormat = &[
+                $(
+                    (
+                        std::borrow::Cow::Borrowed(stringify!($field_name)),
+                        $crate::__glium_offset_of!($struct_name, $field_name),
+                        {
+                            $location
+                        },
+                        {
+                            const fn attr_type_of_val<T: $crate::vertex::Attribute>(_: Option<&T>)
+                                -> $crate::vertex::AttributeType
                             {
-                                let dummy: &$struct_name = unsafe { ::std::mem::transmute(0usize) };
-                                let dummy_field = &dummy.$field_name;
-                                let dummy_field: usize = unsafe { ::std::mem::transmute(dummy_field) };
-                                dummy_field
-                            },
-                            {
-                                fn attr_type_of_val<T: $crate::vertex::Attribute>(_: &T)
-                                    -> $crate::vertex::AttributeType
-                                {
-                                    <T as $crate::vertex::Attribute>::get_type()
-                                }
-                                let dummy: &$struct_name = unsafe { ::std::mem::transmute(0usize) };
-                                attr_type_of_val(&dummy.$field_name)
-                            },
-                            {
-                                $should_normalize
+                                <T as $crate::vertex::Attribute>::TYPE
                             }
-                        )
-                    ),+
-                ])
+                            let field_option = match None::<&$struct_name> {
+                                Some(v) => Some(&v.$field_name),
+                                None => None
+                            };
+                            attr_type_of_val(field_option)
+                        },
+                        false
+                    )
+                ),+
+            ];
+        }
+
+        impl $crate::vertex::Vertex for $struct_name {
+            #[inline]
+            fn build_bindings() -> $crate::vertex::VertexFormat {
+                Self::BINDINGS
             }
         }
     };
 
     ($struct_name:ident, $($field_name:ident),+,) => (
-        implement_vertex!($struct_name, $($field_name),+);
+        $crate::implement_vertex!($struct_name, $($field_name),+);
     );
 }
 
@@ -181,8 +285,7 @@ macro_rules! implement_vertex {
 /// ## Example
 ///
 /// ```
-/// # #[macro_use]
-/// # extern crate glium;
+/// # use glium::implement_buffer_content;
 /// # fn main() {
 /// struct Data {
 ///     data: [u32]
@@ -203,7 +306,7 @@ macro_rules! implement_buffer_content {
                 type Owned = Box<$struct_name<$($gs)*>>;
 
                 #[inline]
-                fn read<F, E>(size: usize, f: F) -> ::std::result::Result<Box<$struct_name<$($gs)*>>, E>
+                unsafe fn read<F, E>(size: usize, f: F) -> ::std::result::Result<Box<$struct_name<$($gs)*>>, E>
                               where F: FnOnce(&mut $struct_name<$($gs)*>) -> ::std::result::Result<(), E>
                 {
                     use std::mem;
@@ -215,7 +318,7 @@ macro_rules! implement_buffer_content {
                     let storage = storage.into_boxed_slice();
                     let mut storage: Box<$struct_name<$($gs)*>> = unsafe { mem::transmute(storage) };
 
-                    try!(f(&mut storage));
+                    f(&mut storage)?;
                     Ok(storage)
                 }
 
@@ -273,15 +376,15 @@ macro_rules! implement_buffer_content {
     };
 
     ($struct_name:ident,) => (
-        implement_buffer_content!($struct_name);
+        $crate::implement_buffer_content!($struct_name);
     );
 
     ($struct_name:ident) => (
-        implement_buffer_content!(__impl $struct_name []);
+        $crate::implement_buffer_content!(__impl $struct_name []);
     );
 
     ($struct_name:ident <$t1:tt>) => (
-        implement_buffer_content!(__impl $struct_name [$t1]);
+        $crate::implement_buffer_content!(__impl $struct_name [$t1]);
     );
 }
 
@@ -292,8 +395,7 @@ macro_rules! implement_buffer_content {
 /// ## Example
 ///
 /// ```
-/// # #[macro_use]
-/// # extern crate glium;
+/// # use glium::implement_uniform_block;
 /// # fn main() {
 /// #[derive(Copy, Clone)]
 /// struct Vertex {
@@ -329,7 +431,7 @@ macro_rules! implement_uniform_block {
                             }
                         }
 
-                        fn matches_from_ty<T: $crate::uniforms::UniformBlock + ?Sized>(_: &T,
+                        fn matches_from_ty<T: $crate::uniforms::UniformBlock + ?Sized>(_: Option<&T>,
                             layout: &$crate::program::BlockLayout, base_offset: usize)
                             -> ::std::result::Result<(), $crate::uniforms::LayoutMismatchError>
                         {
@@ -348,15 +450,10 @@ macro_rules! implement_uniform_block {
                                 })
                             };
 
-                            let input_offset = {
-                                let dummy: &$struct_name = unsafe { mem::zeroed() };
-                                let dummy_field: *const _ = &dummy.$field_name;
-                                dummy_field as *const () as usize
-                            };
+                            let input_offset = mem::offset_of!($struct_name, $field_name);
+                            let dummy_field = None::<&$struct_name>.map(|v| &v.$field_name);
 
-                            let dummy: &$struct_name = unsafe { mem::uninitialized() };
-                            
-                            match matches_from_ty(&dummy.$field_name, reflected_ty, input_offset) {
+                            match matches_from_ty(dummy_field, reflected_ty, input_offset) {
                                 Ok(_) => (),
                                 Err(e) => return Err(LayoutMismatchError::MemberMismatch {
                                     member: stringify!($field_name).to_owned(),
@@ -376,16 +473,13 @@ macro_rules! implement_uniform_block {
                 }
 
                 fn build_layout(base_offset: usize) -> $crate::program::BlockLayout {
-                    use std::mem;
                     use $crate::program::BlockLayout;
 
-                    fn layout_from_ty<T: $crate::uniforms::UniformBlock + ?Sized>(_: &T, base_offset: usize)
+                    fn layout_from_ty<T: $crate::uniforms::UniformBlock + ?Sized>(_: Option<&T>, base_offset: usize)
                                                                          -> BlockLayout
                     {
                         <T as $crate::uniforms::UniformBlock>::build_layout(base_offset)
                     }
-
-                    let dummy: &$struct_name = unsafe { mem::zeroed() };
 
                     BlockLayout::Struct {
                         members: vec![
@@ -393,11 +487,9 @@ macro_rules! implement_uniform_block {
                                 (
                                     stringify!($field_name).to_owned(),
                                     {
-                                        let offset = {
-                                            let dummy_field: *const _ = &dummy.$field_name;
-                                            dummy_field as *const () as usize
-                                        };
-                                        layout_from_ty(&dummy.$field_name, offset + base_offset)
+                                        let offset = $crate::__glium_offset_of!($struct_name, $field_name);
+                                        let field_option = None::<&$struct_name>.map(|v| &v.$field_name);
+                                        layout_from_ty(field_option, offset + base_offset)
                                     }
                                 ),
                             )+
@@ -409,15 +501,15 @@ macro_rules! implement_uniform_block {
     );
 
     ($struct_name:ident, $($field_name:ident),+,) => (
-        implement_uniform_block!($struct_name, $($field_name),+);
+        $crate::implement_uniform_block!($struct_name, $($field_name),+);
     );
 
     ($struct_name:ident, $($field_name:ident),+) => (
-        implement_uniform_block!(__impl $struct_name [], $($field_name),+);
+        $crate::implement_uniform_block!(__impl $struct_name [], $($field_name),+);
     );
 
     ($struct_name:ident<$l:tt>, $($field_name:ident),+) => (
-        implement_uniform_block!(__impl $struct_name [$l], $($field_name),+);
+        $crate::implement_uniform_block!(__impl $struct_name [$l], $($field_name),+);
     );
 }
 
@@ -429,17 +521,16 @@ macro_rules! implement_uniform_block {
 ///
 /// ## Example
 ///
-/// ```ignore       // TODO: no_run instead
-/// # #[macro_use]
-/// # extern crate glium;
-/// # fn main() {
-/// # let display: glium::Display = unsafe { std::mem::uninitialized() };
+/// ```no_run
+/// use glium::program;
+/// # use glutin::surface::{ResizeableSurface, SurfaceTypeTrait};
+/// # fn example<T>(display: glium::Display<T>) where T: SurfaceTypeTrait + ResizeableSurface {
 /// let program = program!(&display,
 ///     300 => {
 ///         vertex: r#"
 ///             #version 300
 ///
-///             fn main() {
+///             void main() {
 ///                 gl_Position = vec4(0.0, 0.0, 0.0, 1.0);
 ///             }
 ///         "#,
@@ -447,7 +538,7 @@ macro_rules! implement_uniform_block {
 ///             #version 300
 ///
 ///             out vec4 color;
-///             fn main() {
+///             void main() {
 ///                 color = vec4(1.0, 1.0, 0.0, 1.0);
 ///             }
 ///         "#,
@@ -456,14 +547,14 @@ macro_rules! implement_uniform_block {
 ///         vertex: r#"
 ///             #version 110
 ///
-///             fn main() {
+///             void main() {
 ///                 gl_Position = vec4(0.0, 0.0, 0.0, 1.0);
 ///             }
 ///         "#,
 ///         fragment: r#"
 ///             #version 110
 ///
-///             fn main() {
+///             void main() {
 ///                 gl_FragColor = vec4(1.0, 1.0, 0.0, 1.0);
 ///             }
 ///         "#,
@@ -472,14 +563,14 @@ macro_rules! implement_uniform_block {
 ///         vertex: r#"
 ///             #version 110
 ///
-///             fn main() {
+///             void main() {
 ///                 gl_Position = vec4(0.0, 0.0, 0.0, 1.0);
 ///             }
 ///         "#,
 ///         fragment: r#"
 ///             #version 110
 ///
-///             fn main() {
+///             void main() {
 ///                 gl_FragColor = vec4(1.0, 1.0, 0.0, 1.0);
 ///             }
 ///         "#,
@@ -495,14 +586,14 @@ macro_rules! program {
     );
 
     ($facade:expr,,$($rest:tt)*) => (
-        program!($facade,$($rest)*)
+        $crate::program!($facade,$($rest)*)
     );
 
     ($facade:expr, $num:tt => $($rest:tt)*) => (
         {
             let context = $crate::backend::Facade::get_context($facade);
             let version = program!(_parse_num_gl $num);
-            program!(_inner, context, version, $($rest)*)
+            $crate::program!(_inner, context, version, $($rest)*)
         }
     );
 
@@ -510,7 +601,7 @@ macro_rules! program {
         {
             let context = $crate::backend::Facade::get_context($facade);
             let version = program!(_parse_num_gles $num);
-            program!(_inner, context, version, $($rest)*)
+            $crate::program!(_inner, context, version, $($rest)*)
         }
     );
 
@@ -521,11 +612,11 @@ macro_rules! program {
             let __tessellation_evaluation_shader: Option<&str> = None;
             let __geometry_shader: Option<&str> = None;
             let __fragment_shader: &str = "";
-            let __outputs_srgb: bool = false;
+            let __outputs_srgb: bool = true;
             let __uses_point_size: bool = false;
 
             $(
-                program!(_program_ty $ty, $src, __vertex_shader, __tessellation_control_shader,
+                $crate::program!(_program_ty $ty, $src, __vertex_shader, __tessellation_control_shader,
                          __tessellation_evaluation_shader, __geometry_shader, __fragment_shader,
                          __outputs_srgb, __uses_point_size);
             )+
@@ -545,12 +636,12 @@ macro_rules! program {
                            .map_err(|err| $crate::program::ProgramChooserCreationError::from(err))
 
         } else {
-            program!($context, $($rest)*)
+            $crate::program!($context, $($rest)*)
         }
     );
 
     (_inner, $context:ident, $vers:ident, {$($ty:ident:$src:expr),+,}$($rest:tt)*) => (
-        program!(_inner, $context, $vers, {$($ty:$src),+} $($rest)*);
+        $crate::program!(_inner, $context, $vers, {$($ty:$src),+} $($rest)*);
     );
 
     (_program_ty vertex, $src:expr, $vs:ident, $tcs:ident, $tes:ident, $gs:ident, $fs:ident, $srgb:ident, $ps:ident) => (

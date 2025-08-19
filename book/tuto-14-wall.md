@@ -36,7 +36,7 @@ target.draw(&shape, glium::index::NoIndices(glium::index::PrimitiveType::Triangl
 
 The rest of the code is mostly the same as before. You should know by now how to draw something!
 
-![What is looks like after step 1](tuto-14-step1.png)
+![What it looks like after step 1](resources/tuto-14-step1.png)
 
 ## Applying a texture
 
@@ -50,11 +50,11 @@ To apply a texture, we do exactly the same thing as a few sections earlier:
 Loading the texture is done like we have already done before:
 
 ```rust
-let image = image::load(Cursor::new(&include_bytes!("../book/tuto-14-diffuse.jpg")[..]),
-                        image::JPEG).unwrap().to_rgba();
+let image = image::load(Cursor::new(&include_bytes!("../book/tuto-14-diffuse.jpg")),
+                        image::JPEG).unwrap().to_rgba8();
 let image_dimensions = image.dimensions();
-let image = glium::texture::RawImage2d::from_raw_rgba_reversed(image.into_raw(), image_dimensions);
-let diffuse_texture = glium::texture::SrgbTexture2d::new(&display, image).unwrap();
+let image = glium::texture::RawImage2d::from_raw_rgba_reversed(&image.into_raw(), image_dimensions);
+let diffuse_texture = glium::texture::Texture2d::new(&display, image).unwrap();
 ```
 
 Adding the texture coordinates is also very easy:
@@ -98,12 +98,12 @@ With this:
 
 ```glsl
 vec3 diffuse_color = texture(diffuse_tex, v_tex_coords).rgb;
-vec3 ambient_color = diffuse_color * 0.2;
+vec3 ambient_color = diffuse_color * 0.1;
 ```
 
 And we should get a textured wall!
 
-![The textured wall](tuto-14-step2.png)
+![The textured wall](resources/tuto-14-step2.png)
 
 ## Normal mapping
 
@@ -124,7 +124,7 @@ fine-grained.
 
 Here is what a *normal map* is:
 
-![The normal map](tuto-14-normal.png)
+![The normal map](resources/tuto-14-normal.png)
 
 As you can see there are a lot of similarities with the regular texture. Each pixel of the normal
 map represents the value of the normal at this pixel's location. Instead of storing colors we
@@ -134,8 +134,10 @@ blue is the value `(0.0, 0.0, 1.0)` which is a vector pointing to the outside.
 Let's start with the beginning. We load the normal map into a texture:
 
 ```rust
-let image = image::load(Cursor::new(&include_bytes!("../book/tuto-14-normal.png")[..]),
-                        image::PNG).unwrap();
+let image = image::load(Cursor::new(&include_bytes!("../book/tuto-14-normal.png")),
+                        image::PNG).unwrap().to_rgba8();
+let image_dimensions = image.dimensions();
+let image = glium::texture::RawImage2d::from_raw_rgba_reversed(&image.into_raw(), image_dimensions);
 let normal_map = glium::texture::Texture2d::new(&display, image).unwrap();
 ```
 
@@ -185,7 +187,7 @@ Thanks to this we can calculate the *real* normal, in other words the normal of 
 at the given pixel:
 
 ```glsl
-mat3 tbn = cotangent_frame(v_normal, v_position, v_tex_coords);
+mat3 tbn = cotangent_frame(v_normal, -v_position, v_tex_coords);
 vec3 real_normal = normalize(tbn * -(normal_map * 2.0 - 1.0));
 ```
 
@@ -194,8 +196,8 @@ The rest of the code is the same as before. We apply phong shading, except that 
 
 And here is the result:
 
-![Final result](tuto-14-step3.png)
+![Final result](resources/tuto-14-step3.png)
 
 This is much more convincing!
 
-**[You can find the entire source code here](https://github.com/tomaka/glium/blob/master/examples/tutorial-14.rs).**
+**[You can find the entire source code here](https://github.com/glium/glium/blob/master/examples/tutorial-14.rs).**

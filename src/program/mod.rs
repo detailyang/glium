@@ -3,11 +3,11 @@
 use std::fmt;
 use std::error::Error;
 use std::sync::Mutex;
-use CapabilitiesSource;
+use crate::CapabilitiesSource;
 
-use gl;
-use version::Api;
-use version::Version;
+use crate::gl;
+use crate::version::Api;
+use crate::version::Version;
 
 pub use self::compute::{ComputeShader, ComputeCommand};
 pub use self::program::Program;
@@ -35,7 +35,7 @@ pub fn is_tessellation_shader_supported<C: ?Sized>(ctxt: &C) -> bool where C: Ca
     shader::check_shader_type_compatibility(ctxt, gl::TESS_CONTROL_SHADER)
 }
 
-/// Returns true if the backend supports creating and retreiving binary format.
+/// Returns true if the backend supports creating and retrieving binary format.
 #[inline]
 pub fn is_binary_supported<C: ?Sized>(ctxt: &C) -> bool where C: CapabilitiesSource {
     ctxt.get_version() >= &Version(Api::Gl, 4, 1) || ctxt.get_version() >= &Version(Api::GlEs, 2, 0)
@@ -55,18 +55,61 @@ pub fn is_subroutine_supported<C: ?Sized>(ctxt: &C) -> bool where C: Capabilitie
     ctxt.get_version() >= &Version(Api::Gl, 4, 0) || ctxt.get_extensions().gl_arb_shader_subroutine
 }
 
-/// Some shader compilers have race-condition issues, so we lock this mutex
-/// in the GL thread every time we compile a shader or link a program.
-// TODO: replace by a StaticMutex
-lazy_static! {
-    static ref COMPILER_GLOBAL_LOCK: Mutex<()> = Mutex::new(());
+// Some shader compilers have race-condition issues, so we lock this mutex
+// in the GL thread every time we compile a shader or link a program.
+static COMPILER_GLOBAL_LOCK: Mutex<()> = Mutex::new(());
+
+/// Used in ProgramCreationError::CompilationError to explain which shader stage failed compilation
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum ShaderType {
+    /// Vertex shader, maps to gl::VERTEX_SHADER
+    Vertex,
+    /// Geometry shader, maps to gl::GEOMETRY_SHADER
+    Geometry,
+    /// Fragment shader, maps to gl::FRAGMENT_SHADER
+    Fragment,
+    /// Tesselation control shader, maps to gl::TESS_CONTROL_SHADER
+    TesselationControl,
+    /// Tesselation evaluation shader, maps to gl::TESS_EVALUATION_SHADER
+    TesselationEvaluation,
+    /// Compute shader, maps to gl::COMPUTE_SHADER
+    Compute,
+}
+
+impl ShaderType {
+    /// Creates an instance of gl::types::GLenum corresponding to the given ShaderType
+    pub fn to_opengl_type(self) -> gl::types::GLenum {
+        match self {
+            ShaderType::Vertex => gl::VERTEX_SHADER,
+            ShaderType::Geometry => gl::GEOMETRY_SHADER,
+            ShaderType::Fragment => gl::FRAGMENT_SHADER,
+            ShaderType::TesselationControl => gl::TESS_CONTROL_SHADER,
+            ShaderType::TesselationEvaluation => gl::TESS_EVALUATION_SHADER,
+            ShaderType::Compute => gl::COMPUTE_SHADER,
+        }
+    }
+    /// Creates an instance of ShaderType corresponding to the given gl::types::GLenum.
+    /// This routine will panic if the given shadertype is not supported by glium.
+    pub fn from_opengl_type(gl_type: gl::types::GLenum) -> Self {
+        match gl_type {
+            gl::VERTEX_SHADER => ShaderType::Vertex,
+            gl::GEOMETRY_SHADER => ShaderType::Geometry,
+            gl::FRAGMENT_SHADER => ShaderType::Fragment,
+            gl::TESS_CONTROL_SHADER => ShaderType::TesselationControl,
+            gl::TESS_EVALUATION_SHADER => ShaderType::TesselationEvaluation,
+            gl::COMPUTE_SHADER  => ShaderType::Compute,
+            _ => {
+                panic!("Unsupported shader type")
+            }
+        }
+    }
 }
 
 /// Error that can be triggered when creating a `Program`.
 #[derive(Clone, Debug)]
 pub enum ProgramCreationError {
     /// Error while compiling one of the shaders.
-    CompilationError(String),
+    CompilationError(String, ShaderType),
 
     /// Error while linking the program.
     LinkingError(String),
@@ -92,25 +135,19 @@ pub enum ProgramCreationError {
 }
 
 impl fmt::Display for ProgramCreationError {
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         use self::ProgramCreationError::*;
-        match *self {
-            CompilationError(ref s) =>
-                write!(fmt, "{}: {}", self.description(), s),
-            LinkingError(ref s) =>
-                write!(fmt, "{}: {}", self.description(), s),
-            _ =>
-                write!(fmt, "{}", self.description()),
-        }
-    }
-}
-
-impl Error for ProgramCreationError {
-    fn description(&self) -> &str {
-        use self::ProgramCreationError::*;
-        match *self {
-            CompilationError(_) =>
-                "Compilation error in one of the shaders",
+        let desc = match *self {
+            CompilationError(_,typ) => {
+                match typ {
+                    ShaderType::Vertex => "Compilation error in vertex shader",
+                    ShaderType::Geometry => "Compilation error in geometry shader",
+                    ShaderType::Fragment => "Compilation error in fragment shader",
+                    ShaderType::TesselationControl => "Compilation error in tesselation control shader",
+                    ShaderType::TesselationEvaluation => "Compilation error in tesselation evaluation shader",
+                    ShaderType::Compute => "Compilation error in compute shader"
+                }
+            },
             LinkingError(_) =>
                 "Error while linking shaders together",
             ShaderTypeNotSupported =>
@@ -123,9 +160,19 @@ impl Error for ProgramCreationError {
                 "Point size is not supported by the backend.",
             BinaryHeaderError =>
                 "The glium-specific binary header was not found or is corrupt.",
+        };
+        match *self {
+            CompilationError(ref s, _) =>
+                write!(fmt, "{}: {}", desc, s),
+            LinkingError(ref s) =>
+                write!(fmt, "{}: {}", desc, s),
+            _ =>
+                write!(fmt, "{}", desc),
         }
     }
 }
+
+impl Error for ProgramCreationError {}
 
 /// Error type that is returned by the `program!` macro.
 #[derive(Clone, Debug)]
@@ -139,23 +186,18 @@ pub enum ProgramChooserCreationError {
 
 impl fmt::Display for ProgramChooserCreationError {
     #[inline]
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(fmt, "{}", self.description())
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        use self::ProgramChooserCreationError::*;
+        match *self {
+            ProgramCreationError(ref err) => write!(fmt, "{}", err),
+            NoVersion => fmt.write_str("No version of the program has been found for the current OpenGL version."),
+        }
     }
 }
 
 impl Error for ProgramChooserCreationError {
     #[inline]
-    fn description(&self) -> &str {
-        use self::ProgramChooserCreationError::*;
-        match *self {
-            ProgramCreationError(ref err) => err.description(),
-            NoVersion => "No version of the program has been found for the current OpenGL version.",
-        }
-    }
-
-    #[inline]
-    fn cause(&self) -> Option<&Error> {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
         use self::ProgramChooserCreationError::*;
         match *self {
             ProgramCreationError(ref err) => Some(err),
@@ -170,7 +212,7 @@ impl From<ProgramCreationError> for ProgramChooserCreationError {
     }
 }
 
-/// Error while retreiving the binary representation of a program.
+/// Error while retrieving the binary representation of a program.
 #[derive(Copy, Clone, Debug)]
 pub enum GetBinaryError {
     /// The backend doesn't support binary.
@@ -180,20 +222,17 @@ pub enum GetBinaryError {
 }
 
 impl fmt::Display for GetBinaryError {
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-        write!(fmt, "{}", self.description())
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        use self::GetBinaryError::*;
+        let desc = match *self {
+            NotSupported => "The backend doesn't support binary",
+            NoFormats => "The backend does not supply any binary formats.",
+        };
+        fmt.write_str(desc)
     }
 }
 
-impl Error for GetBinaryError {
-    fn description(&self) -> &str {
-        use self::GetBinaryError::*;
-        match *self {
-            NotSupported => "The backend doesn't support binary",
-            NoFormats => "The backend does not supply any binary formats.",
-        }
-    }
-}
+impl Error for GetBinaryError {}
 
 /// Input when creating a program.
 pub enum ProgramCreationInput<'a> {
@@ -220,8 +259,8 @@ pub enum ProgramCreationInput<'a> {
         /// `None`, then you won't be able to use transform feedback.
         transform_feedback_varyings: Option<(Vec<String>, TransformFeedbackMode)>,
 
-        /// Whether the fragment shader outputs colors in `sRGB` or `RGB`. This is false by default,
-        /// meaning that the program outputs `RGB`.
+        /// Whether the fragment shader outputs colors in `sRGB` or `RGB`. This is true by default,
+        /// meaning that the program is responsible for outputting correct `sRGB` values.
         ///
         /// If this is false, then `GL_FRAMEBUFFER_SRGB` will be enabled when this program is used
         /// (if it is supported).
@@ -236,12 +275,111 @@ pub enum ProgramCreationInput<'a> {
         /// The data.
         data: Binary,
 
-        /// See `SourceCode::outputs_srgb`.
+        /// See [`ProgramCreationInput::SourceCode::outputs_srgb`].
         outputs_srgb: bool,
 
         /// Whether the shader uses point size.
         uses_point_size: bool,
+    },
+
+    /// Use a SPIR-V binary.
+    SpirV(SpirvProgram<'a>),
+}
+
+/// Represents a SPIR-V program. The shaders can refer to entry points in the same binary.
+#[derive(Clone)]
+pub struct SpirvProgram<'a> {
+    /// The vertex shader.
+    pub vertex_shader: SpirvEntryPoint<'a>,
+
+    /// The fragment shader.
+    pub fragment_shader: SpirvEntryPoint<'a>,
+
+    /// Optional tessellation control shader.
+    pub tessellation_control_shader: Option<SpirvEntryPoint<'a>>,
+
+    /// Optional tessellation evaluation shader.
+    pub tessellation_evaluation_shader: Option<SpirvEntryPoint<'a>>,
+
+    /// Optional geometry shader.
+    pub geometry_shader: Option<SpirvEntryPoint<'a>>,
+
+    /// The list of variables and mode to use for transform feedback.
+    ///
+    /// The information specified here will be passed to the OpenGL linker. If you pass
+    /// `None`, then you won't be able to use transform feedback.
+    pub transform_feedback_varyings: Option<(Vec<String>, TransformFeedbackMode)>,
+
+    /// See [`ProgramCreationInput::SourceCode::outputs_srgb`].
+    pub outputs_srgb: bool,
+
+    /// Whether the shader uses point size.
+    pub uses_point_size: bool,
+}
+
+impl<'a> SpirvProgram<'a> {
+    /// Create new `SpirvProgram` from vertex and fragment shaders.
+    pub fn from_vs_and_fs(
+        vertex_shader: SpirvEntryPoint<'a>,
+        fragment_shader: SpirvEntryPoint<'a>,
+    ) -> Self {
+        Self {
+            vertex_shader,
+            fragment_shader,
+            tessellation_control_shader: None,
+            tessellation_evaluation_shader: None,
+            geometry_shader: None,
+            transform_feedback_varyings: None,
+            outputs_srgb: true,
+            uses_point_size: false,
+        }
     }
+
+    /// Builder method to set `tessellation_control_shader`.
+    pub fn tessellation_control_shader(mut self, tessellation_control_shader: Option<SpirvEntryPoint<'a>>) -> Self {
+        self.tessellation_control_shader = tessellation_control_shader;
+        self
+    }
+
+    /// Builder method to set `tessellation_evaluation_shader`.
+    pub fn tessellation_evaluation_shader(mut self, tessellation_evaluation_shader: Option<SpirvEntryPoint<'a>>) -> Self {
+        self.tessellation_evaluation_shader = tessellation_evaluation_shader;
+        self
+    }
+
+    /// Builder method to set `geometry_shader`.
+    pub fn geometry_shader(mut self, geometry_shader: Option<SpirvEntryPoint<'a>>) -> Self {
+        self.geometry_shader = geometry_shader;
+        self
+    }
+
+    /// Builder method to set `transform_feedback_varyings`.
+    pub fn transform_feedback_varyings(mut self, transform_feedback_varyings: Option<(Vec<String>, TransformFeedbackMode)>) -> Self {
+        self.transform_feedback_varyings = transform_feedback_varyings;
+        self
+    }
+
+    /// Builder method to set `outputs_srgb`.
+    pub fn outputs_srgb(mut self, outputs_srgb: bool) -> Self {
+        self.outputs_srgb = outputs_srgb;
+        self
+    }
+
+    /// Builder method to set `uses_point_size`.
+    pub fn uses_point_size(mut self, uses_point_size: bool) -> Self {
+        self.uses_point_size = uses_point_size;
+        self
+    }
+}
+
+/// Represents an entry point of a binary SPIR-V module.
+#[derive(Copy, Clone)]
+pub struct SpirvEntryPoint<'a> {
+    /// The binary module data.
+    pub binary: &'a [u8],
+
+    /// The entry point to use, e.g. "main".
+    pub entry_point: &'a str,
 }
 
 /// Represents the source code of a program.
@@ -269,13 +407,13 @@ impl<'a> From<SourceCode<'a>> for ProgramCreationInput<'a> {
                          tessellation_control_shader, tessellation_evaluation_shader } = code;
 
         ProgramCreationInput::SourceCode {
-            vertex_shader: vertex_shader,
-            tessellation_control_shader: tessellation_control_shader,
-            tessellation_evaluation_shader: tessellation_evaluation_shader,
-            geometry_shader: geometry_shader,
-            fragment_shader: fragment_shader,
+            vertex_shader,
+            tessellation_control_shader,
+            tessellation_evaluation_shader,
+            geometry_shader,
+            fragment_shader,
             transform_feedback_varyings: None,
-            outputs_srgb: false,
+            outputs_srgb: true,
             uses_point_size: false,
         }
     }
@@ -295,7 +433,7 @@ impl<'a> From<Binary> for ProgramCreationInput<'a> {
     fn from(binary: Binary) -> ProgramCreationInput<'a> {
         ProgramCreationInput::Binary {
             data: binary,
-            outputs_srgb: false,
+            outputs_srgb: true,
             uses_point_size: false,
         }
     }

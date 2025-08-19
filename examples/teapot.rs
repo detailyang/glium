@@ -1,137 +1,144 @@
 #[macro_use]
 extern crate glium;
 
-use glium::{glutin, Surface};
+use glium::{Display, Surface};
+use glutin::surface::WindowSurface;
+use support::{ApplicationContext, State};
 
 mod support;
 
-fn main() {
-    // building the display, ie. the main object
-    let mut events_loop = glutin::EventsLoop::new();
-    let window = glutin::WindowBuilder::new();
-    let context = glutin::ContextBuilder::new().with_depth_buffer(24);
-    let display = glium::Display::new(window, context, &events_loop).unwrap();
+struct Application {
+    pub vertex_buffer: glium::vertex::VertexBufferAny,
+    pub program: glium::Program,
+    pub camera: support::camera::CameraState,
+}
 
-    // building the vertex and index buffers
-    let vertex_buffer = support::load_wavefront(&display, include_bytes!("support/teapot.obj"));
+impl ApplicationContext for Application {
+    const WINDOW_TITLE:&'static str = "Glium teapot example";
 
-    // the program
-    let program = program!(&display,
-        140 => {
-            vertex: "
-                #version 140
+    fn new(display: &Display<WindowSurface>) -> Self {
+        let vertex_buffer = support::load_wavefront(&display, include_bytes!("support/teapot.obj"));
+        let program = program!(display,
+            140 => {
+                vertex: "
+                    #version 140
 
-                uniform mat4 persp_matrix;
-                uniform mat4 view_matrix;
+                    uniform mat4 persp_matrix;
+                    uniform mat4 view_matrix;
 
-                in vec3 position;
-                in vec3 normal;
-                out vec3 v_position;
-                out vec3 v_normal;
+                    in vec3 position;
+                    in vec3 normal;
+                    out vec3 v_position;
+                    out vec3 v_normal;
 
-                void main() {
-                    v_position = position;
-                    v_normal = normal;
-                    gl_Position = persp_matrix * view_matrix * vec4(v_position * 0.005, 1.0);
-                }
-            ",
+                    void main() {
+                        v_position = position;
+                        v_normal = normal;
+                        gl_Position = persp_matrix * view_matrix * vec4(v_position * 0.005, 1.0);
+                    }
+                ",
 
-            fragment: "
-                #version 140
+                fragment: "
+                    #version 140
 
-                in vec3 v_normal;
-                out vec4 f_color;
+                    in vec3 v_normal;
+                    out vec4 f_color;
 
-                const vec3 LIGHT = vec3(-0.2, 0.8, 0.1);
+                    const vec3 LIGHT = vec3(-0.2, 0.8, 0.1);
 
-                void main() {
-                    float lum = max(dot(normalize(v_normal), normalize(LIGHT)), 0.0);
-                    vec3 color = (0.3 + 0.7 * lum) * vec3(1.0, 1.0, 1.0);
-                    f_color = vec4(color, 1.0);
-                }
-            ",
-        },
+                    void main() {
+                        float lum = max(dot(normalize(v_normal), normalize(LIGHT)), 0.0);
+                        vec3 color = (0.3 + 0.7 * lum) * vec3(1.0, 1.0, 1.0);
+                        f_color = vec4(color, 1.0);
+                    }
+                ",
+            },
 
-        110 => {
-            vertex: "
-                #version 110
+            110 => {
+                vertex: "
+                    #version 110
 
-                uniform mat4 persp_matrix;
-                uniform mat4 view_matrix;
+                    uniform mat4 persp_matrix;
+                    uniform mat4 view_matrix;
 
-                attribute vec3 position;
-                attribute vec3 normal;
-                varying vec3 v_position;
-                varying vec3 v_normal;
+                    attribute vec3 position;
+                    attribute vec3 normal;
+                    varying vec3 v_position;
+                    varying vec3 v_normal;
 
-                void main() {
-                    v_position = position;
-                    v_normal = normal;
-                    gl_Position = persp_matrix * view_matrix * vec4(v_position * 0.005, 1.0);
-                }
-            ",
+                    void main() {
+                        v_position = position;
+                        v_normal = normal;
+                        gl_Position = persp_matrix * view_matrix * vec4(v_position * 0.005, 1.0);
+                    }
+                ",
 
-            fragment: "
-                #version 110
+                fragment: "
+                    #version 110
 
-                varying vec3 v_normal;
+                    varying vec3 v_normal;
 
-                const vec3 LIGHT = vec3(-0.2, 0.8, 0.1);
+                    const vec3 LIGHT = vec3(-0.2, 0.8, 0.1);
 
-                void main() {
-                    float lum = max(dot(normalize(v_normal), normalize(LIGHT)), 0.0);
-                    vec3 color = (0.3 + 0.7 * lum) * vec3(1.0, 1.0, 1.0);
-                    gl_FragColor = vec4(color, 1.0);
-                }
-            ",
-        },
+                    void main() {
+                        float lum = max(dot(normalize(v_normal), normalize(LIGHT)), 0.0);
+                        vec3 color = (0.3 + 0.7 * lum) * vec3(1.0, 1.0, 1.0);
+                        gl_FragColor = vec4(color, 1.0);
+                    }
+                ",
+            },
 
-        100 => {
-            vertex: "
-                #version 100
+            100 => {
+                vertex: "
+                    #version 100
 
-                uniform lowp mat4 persp_matrix;
-                uniform lowp mat4 view_matrix;
+                    uniform lowp mat4 persp_matrix;
+                    uniform lowp mat4 view_matrix;
 
-                attribute lowp vec3 position;
-                attribute lowp vec3 normal;
-                varying lowp vec3 v_position;
-                varying lowp vec3 v_normal;
+                    attribute lowp vec3 position;
+                    attribute lowp vec3 normal;
+                    varying lowp vec3 v_position;
+                    varying lowp vec3 v_normal;
 
-                void main() {
-                    v_position = position;
-                    v_normal = normal;
-                    gl_Position = persp_matrix * view_matrix * vec4(v_position * 0.005, 1.0);
-                }
-            ",
+                    void main() {
+                        v_position = position;
+                        v_normal = normal;
+                        gl_Position = persp_matrix * view_matrix * vec4(v_position * 0.005, 1.0);
+                    }
+                ",
 
-            fragment: "
-                #version 100
+                fragment: "
+                    #version 100
 
-                varying lowp vec3 v_normal;
+                    varying lowp vec3 v_normal;
 
-                const lowp vec3 LIGHT = vec3(-0.2, 0.8, 0.1);
+                    const lowp vec3 LIGHT = vec3(-0.2, 0.8, 0.1);
 
-                void main() {
-                    lowp float lum = max(dot(normalize(v_normal), normalize(LIGHT)), 0.0);
-                    lowp vec3 color = (0.3 + 0.7 * lum) * vec3(1.0, 1.0, 1.0);
-                    gl_FragColor = vec4(color, 1.0);
-                }
-            ",
-        },
-    ).unwrap();
+                    void main() {
+                        lowp float lum = max(dot(normalize(v_normal), normalize(LIGHT)), 0.0);
+                        lowp vec3 color = (0.3 + 0.7 * lum) * vec3(1.0, 1.0, 1.0);
+                        gl_FragColor = vec4(color, 1.0);
+                    }
+                ",
+            },
+        )
+        .unwrap();
 
-    //
-    let mut camera = support::camera::CameraState::new();
-    
-    // the main loop
-    support::start_loop(|| {
-        camera.update();
+        let camera = support::camera::CameraState::new();
 
+        Self {
+            vertex_buffer,
+            program,
+            camera,
+        }
+    }
+
+    fn draw_frame(&mut self, display: &Display<WindowSurface>) {
+        let mut frame = display.draw();
         // building the uniforms
         let uniforms = uniform! {
-            persp_matrix: camera.get_perspective(),
-            view_matrix: camera.get_view(),
+            persp_matrix: self.camera.get_perspective(),
+            view_matrix: self.camera.get_view(),
         };
 
         // draw parameters
@@ -139,32 +146,33 @@ fn main() {
             depth: glium::Depth {
                 test: glium::DepthTest::IfLess,
                 write: true,
-                .. Default::default()
+                ..Default::default()
             },
-            .. Default::default()
+            ..Default::default()
         };
 
-        // drawing a frame
-        let mut target = display.draw();
-        target.clear_color_and_depth((0.0, 0.0, 0.0, 0.0), 1.0);
-        target.draw(&vertex_buffer,
-                    &glium::index::NoIndices(glium::index::PrimitiveType::TrianglesList),
-                    &program, &uniforms, &params).unwrap();
-        target.finish().unwrap();
+        frame.clear_color_and_depth((0.0, 0.0, 0.0, 0.0), 1.0);
+        frame
+            .draw(
+                &self.vertex_buffer,
+                &glium::index::NoIndices(glium::index::PrimitiveType::TrianglesList),
+                &self.program,
+                &uniforms,
+                &params,
+            )
+            .unwrap();
+        frame.finish().unwrap();
+    }
 
-        let mut action = support::Action::Continue;
+    fn handle_window_event(&mut self, event: &glium::winit::event::WindowEvent, _window: &glium::winit::window::Window) {
+        self.camera.process_input(&event);
+    }
 
-        // polling and handling the events received by the window
-        events_loop.poll_events(|event| {
-            match event {
-                glutin::Event::WindowEvent { event, .. } => match event {
-                    glutin::WindowEvent::Closed => action = support::Action::Stop,
-                    ev => camera.process_input(&ev),
-                },
-                _ => (),
-            }
-        });
+    fn update(&mut self) {
+        self.camera.update();
+    }
+}
 
-        action
-    });
+fn main() {
+    State::<Application>::run_loop();
 }

@@ -59,20 +59,20 @@ use std::collections::HashMap;
 use fnv::FnvHasher;
 use smallvec::SmallVec;
 
-use CapabilitiesSource;
-use GlObject;
-use TextureExt;
+use crate::CapabilitiesSource;
+use crate::GlObject;
+use crate::TextureExt;
 
-use texture::CubeLayer;
-use texture::TextureAnyImage;
-use texture::TextureAnyMipmap;
-use texture::TextureKind;
-use framebuffer::RenderBufferAny;
+use crate::texture::CubeLayer;
+use crate::texture::TextureAnyImage;
+use crate::texture::TextureAnyMipmap;
+use crate::texture::TextureKind;
+use crate::framebuffer::RenderBufferAny;
 
-use gl;
-use context::CommandContext;
-use version::Version;
-use version::Api;
+use crate::gl;
+use crate::context::CommandContext;
+use crate::version::Version;
+use crate::version::Api;
 
 /// Returns true if the backend supports attachments with varying dimensions.
 ///
@@ -118,8 +118,8 @@ impl<'a> RegularAttachment<'a> {
     #[inline]
     pub fn kind(&self) -> TextureKind {
         match self {
-            &RegularAttachment::Texture(t) => t.get_texture().kind(),
-            &RegularAttachment::RenderBuffer(rb) => rb.kind(),
+            RegularAttachment::Texture(t) => t.get_texture().kind(),
+            RegularAttachment::RenderBuffer(rb) => rb.kind(),
         }
     }
 }
@@ -202,7 +202,7 @@ impl<'a> FramebufferAttachments<'a> {
                             default_samples_fixed: Some(fixed_samples),
                         },
                         dimensions: (width, height),
-                        layers: layers,
+                        layers,
                         depth_buffer_bits: None,
                         stencil_buffer_bits: None,
                         marker: PhantomData,
@@ -323,12 +323,17 @@ impl<'a> FramebufferAttachments<'a> {
                 raw_attachments.stencil = Some(handle_tex!(s, dimensions, samples, stencil_bits));
             },
             DepthStencilAttachments::DepthStencilAttachment(LayeredAttachment(ref ds)) => {
-                // FIXME: bits count
+                let depth_stencil_bits = ds.get_texture().get_depth_stencil_bits();
+                depth_bits = Some(depth_stencil_bits.0);
+                stencil_bits = Some(depth_stencil_bits.1);
                 raw_attachments.depth_stencil = Some(handle_tex!(ds, dimensions, samples));
             },
         }
 
         let dimensions = if let Some(dimensions) = dimensions {
+            if dimensions.0 * dimensions.1 == 0 {
+                return Err(ValidationError::EmptyFramebufferUnsupportedDimensions);
+            }
             dimensions
         } else {
             // TODO: handle this
@@ -337,7 +342,7 @@ impl<'a> FramebufferAttachments<'a> {
 
         Ok(ValidatedAttachments {
             raw: raw_attachments,
-            dimensions: dimensions,
+            dimensions,
             layers: None,       // FIXME: count layers
             depth_buffer_bits: depth_bits,
             stencil_buffer_bits: stencil_bits,
@@ -502,12 +507,22 @@ impl<'a> FramebufferAttachments<'a> {
                 raw_attachments.stencil = Some(handle_atch!(s, dimensions, samples, stencil_bits));
             },
             DepthStencilAttachments::DepthStencilAttachment(ref ds) => {
-                // FIXME: bits count
+                let depth_stencil_bits = match ds {
+                    RegularAttachment::Texture(ref tex) =>
+                        tex.get_texture().get_depth_stencil_bits(),
+                    RegularAttachment::RenderBuffer(ref rb) =>
+                        rb.get_depth_stencil_bits(),
+                };
+                depth_bits = Some(depth_stencil_bits.0);
+                stencil_bits = Some(depth_stencil_bits.1);
                 raw_attachments.depth_stencil = Some(handle_atch!(ds, dimensions, samples));
             },
         }
 
         let dimensions = if let Some(dimensions) = dimensions {
+            if dimensions.0 * dimensions.1 == 0 {
+                return Err(ValidationError::EmptyFramebufferUnsupportedDimensions);
+            }
             dimensions
         } else {
             // TODO: handle this
@@ -516,7 +531,7 @@ impl<'a> FramebufferAttachments<'a> {
 
         Ok(ValidatedAttachments {
             raw: raw_attachments,
-            dimensions: dimensions,
+            dimensions,
             layers: None,
             depth_buffer_bits: depth_bits,
             stencil_buffer_bits: stencil_bits,
@@ -592,21 +607,9 @@ pub enum ValidationError {
 }
 
 impl fmt::Display for ValidationError {
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         use self::ValidationError::*;
-        match *self {
-            TooManyColorAttachments{ ref maximum, ref obtained } =>
-                write!(fmt, "{}: found {}, maximum: {}", self.description(), obtained, maximum),
-            _ =>
-                write!(fmt, "{}", self.description()),
-        }
-    }
-}
-
-impl Error for ValidationError {
-    fn description(&self) -> &str {
-        use self::ValidationError::*;
-        match *self {
+        let desc = match self {
             EmptyFramebufferObjectsNotSupported =>
                 "You requested an empty framebuffer object, but they are not supported",
             EmptyFramebufferUnsupportedDimensions =>
@@ -617,9 +620,17 @@ impl Error for ValidationError {
                 "All attachments must have the same number of samples",
             TooManyColorAttachments {..} =>
                 "Backends only support a certain number of color attachments",
+        };
+        match self {
+            TooManyColorAttachments{ ref maximum, ref obtained } =>
+                write!(fmt, "{}: found {}, maximum: {}", desc, obtained, maximum),
+            _ =>
+                fmt.write_str(desc),
         }
     }
 }
+
+impl Error for ValidationError {}
 
 /// Data structure stored in the hashmap.
 ///
@@ -717,7 +728,7 @@ impl FramebuffersContainer {
     }
 
     /// Destroys all framebuffer objects. This is used when using a new context for example.
-    pub fn purge_all(ctxt: &mut CommandContext) {
+    pub fn purge_all(ctxt: &mut CommandContext<'_>) {
         let mut other = HashMap::with_hasher(Default::default());
         mem::swap(&mut *ctxt.framebuffer_objects.framebuffers.borrow_mut(), &mut other);
 
@@ -728,30 +739,27 @@ impl FramebuffersContainer {
 
     /// Destroys all framebuffer objects that contain a precise texture.
     #[inline]
-    pub fn purge_texture(ctxt: &mut CommandContext, texture: gl::types::GLuint) {
+    pub fn purge_texture(ctxt: &mut CommandContext<'_>, texture: gl::types::GLuint) {
         FramebuffersContainer::purge_if(ctxt, |a| {
-            match a {
-                &RawAttachment::Texture { texture: id, .. } if id == texture => true,
-                _ => false
-            }
+            matches!(a, &RawAttachment::Texture { texture: id, .. } if id == texture)
         });
     }
 
     /// Destroys all framebuffer objects that contain a precise renderbuffer.
     #[inline]
-    pub fn purge_renderbuffer(ctxt: &mut CommandContext, renderbuffer: gl::types::GLuint) {
+    pub fn purge_renderbuffer(ctxt: &mut CommandContext<'_>, renderbuffer: gl::types::GLuint) {
         FramebuffersContainer::purge_if(ctxt, |a| a == &RawAttachment::RenderBuffer(renderbuffer));
     }
 
     /// Destroys all framebuffer objects that match a certain condition.
-    fn purge_if<F>(mut ctxt: &mut CommandContext, condition: F)
+    fn purge_if<F>(ctxt: &mut CommandContext<'_>, condition: F)
                    where F: Fn(&RawAttachment) -> bool
     {
         let mut framebuffers = ctxt.framebuffer_objects.framebuffers.borrow_mut();
 
         let mut attachments = Vec::with_capacity(0);
         for (key, _) in framebuffers.iter() {
-            if key.color.iter().find(|&&(_, ref id)| condition(id)).is_some() {
+            if key.color.iter().any(|&(_, ref id)| condition(id)) {
                 attachments.push(key.clone());
                 continue;
             }
@@ -787,7 +795,7 @@ impl FramebuffersContainer {
     ///
     /// This is very similar to `purge_all`, but optimized for when the container will soon
     /// be destroyed.
-    pub fn cleanup(ctxt: &mut CommandContext) {
+    pub fn cleanup(ctxt: &mut CommandContext<'_>) {
         let mut other = HashMap::with_hasher(Default::default());
         mem::swap(&mut *ctxt.framebuffer_objects.framebuffers.borrow_mut(), &mut other);
 
@@ -802,8 +810,8 @@ impl FramebuffersContainer {
     /// After calling this function, you **must** make sure to call `purge_texture`
     /// and/or `purge_renderbuffer` when one of the attachment is destroyed.
     #[inline]
-    pub fn get_framebuffer_for_drawing(ctxt: &mut CommandContext,
-                                       attachments: Option<&ValidatedAttachments>)
+    pub fn get_framebuffer_for_drawing(ctxt: &mut CommandContext<'_>,
+                                       attachments: Option<&ValidatedAttachments<'_>>)
                                        -> gl::types::GLuint
     {
         if let Some(attachments) = attachments {
@@ -817,7 +825,7 @@ impl FramebuffersContainer {
     /// becomes the target of `glReadPixels`, `glCopyTexImage2D`, etc.
     // TODO: use an enum for the read buffer instead
     #[inline]
-    pub fn bind_default_framebuffer_for_reading(ctxt: &mut CommandContext,
+    pub fn bind_default_framebuffer_for_reading(ctxt: &mut CommandContext<'_>,
                                                 read_buffer: gl::types::GLenum)
     {
         unsafe { bind_framebuffer(ctxt, 0, false, true) };
@@ -831,7 +839,7 @@ impl FramebuffersContainer {
     ///
     /// After calling this function, you **must** make sure to call `purge_texture`
     /// and/or `purge_renderbuffer` when one of the attachment is destroyed.
-    pub unsafe fn bind_framebuffer_for_reading(ctxt: &mut CommandContext, attachment: &RegularAttachment) {
+    pub unsafe fn bind_framebuffer_for_reading(ctxt: &mut CommandContext<'_>, attachment: &RegularAttachment<'_>) {
         // TODO: restore this optimisation
         /*for (attachments, fbo) in ctxt.framebuffer_objects.framebuffers.borrow_mut().iter() {
             for &(key, ref atc) in attachments.color.iter() {
@@ -842,7 +850,7 @@ impl FramebuffersContainer {
         }*/
 
         let attachments = FramebufferAttachments::Regular(FramebufferSpecificAttachments {
-            colors: { let mut v = SmallVec::new(); v.push((0, attachment.clone())); v },
+            colors: { let mut v = SmallVec::new(); v.push((0, *attachment)); v },
             depth_stencil: DepthStencilAttachments::None,
         }).validate(ctxt).unwrap();
 
@@ -855,13 +863,13 @@ impl FramebuffersContainer {
     ///
     /// # Panic
     ///
-    /// Panicks if `data` is incompatible with the kind of attachment.
+    /// Panics if `data` is incompatible with the kind of attachment.
     ///
     /// # Unsafety
     ///
     /// After calling this function, you **must** make sure to call `purge_texture`
     /// and/or `purge_renderbuffer` when one of the attachment is destroyed.
-    pub unsafe fn clear_buffer<D>(ctxt: &mut CommandContext, attachment: &RegularAttachment,
+    pub unsafe fn clear_buffer<D>(ctxt: &mut CommandContext<'_>, attachment: &RegularAttachment<'_>,
                                   data: D)
         where D: Into<ClearBufferData>
     {
@@ -870,7 +878,7 @@ impl FramebuffersContainer {
         let data = data.into();
 
         let fb = FramebufferAttachments::Regular(FramebufferSpecificAttachments {
-            colors: { let mut v = SmallVec::new(); v.push((0, attachment.clone())); v },
+            colors: { let mut v = SmallVec::new(); v.push((0, *attachment)); v },
             depth_stencil: DepthStencilAttachments::None,
         }).validate(ctxt).unwrap();
         let fb = FramebuffersContainer::get_framebuffer_for_drawing(ctxt, Some(&fb));
@@ -910,7 +918,7 @@ impl FramebuffersContainer {
     ///
     /// After calling this function, you **must** make sure to call `purge_texture`
     /// and/or `purge_renderbuffer` when one of the attachment is destroyed.
-    fn get_framebuffer(ctxt: &mut CommandContext, attachments: &ValidatedAttachments)
+    fn get_framebuffer(ctxt: &mut CommandContext<'_>, attachments: &ValidatedAttachments<'_>)
                        -> gl::types::GLuint
     {
         // TODO: use entries API
@@ -920,7 +928,7 @@ impl FramebuffersContainer {
         }
 
         let new_fbo = FrameBufferObject::new(ctxt, &attachments.raw);
-        let new_fbo_id = new_fbo.id.clone();
+        let new_fbo_id = new_fbo.id;
         framebuffers.insert(attachments.raw.clone(), new_fbo);
         new_fbo_id
     }
@@ -946,9 +954,9 @@ impl FrameBufferObject {
     ///
     /// # Panic
     ///
-    /// Panicks if anything wrong or not supported is detected with the raw attachments.
+    /// Panics if anything wrong or not supported is detected with the raw attachments.
     ///
-    fn new(mut ctxt: &mut CommandContext, attachments: &RawAttachments) -> FrameBufferObject {
+    fn new(mut ctxt: &mut CommandContext<'_>, attachments: &RawAttachments) -> FrameBufferObject {
         if attachments.color.len() > ctxt.capabilities.max_draw_buffers as usize {
             panic!("Trying to attach {} color buffers, but the hardware only supports {}",
                    attachments.color.len(), ctxt.capabilities.max_draw_buffers);
@@ -956,7 +964,7 @@ impl FrameBufferObject {
 
         // building the FBO
         let id = unsafe {
-            let mut id = mem::uninitialized();
+            let mut id = 0;
 
             if ctxt.version >= &Version(Api::Gl, 4, 5) ||
                 ctxt.extensions.gl_arb_direct_state_access
@@ -1114,13 +1122,13 @@ impl FrameBufferObject {
 
 
         FrameBufferObject {
-            id: id,
+            id,
             current_read_buffer: gl::BACK,
         }
     }
 
     /// Destroys the FBO. Must be called, or things will leak.
-    fn destroy(self, mut ctxt: &mut CommandContext) {
+    fn destroy(self, ctxt: &mut CommandContext<'_>) {
         // unbinding framebuffer
         if ctxt.state.draw_framebuffer == self.id {
             ctxt.state.draw_framebuffer = 0;
@@ -1159,7 +1167,7 @@ impl GlObject for FrameBufferObject {
 ///
 /// The id of the FBO must be valid.
 ///
-pub unsafe fn bind_framebuffer(ctxt: &mut CommandContext, fbo_id: gl::types::GLuint,
+pub unsafe fn bind_framebuffer(ctxt: &mut CommandContext<'_>, fbo_id: gl::types::GLuint,
                                draw: bool, read: bool)
 {
     if draw && read {
@@ -1228,15 +1236,15 @@ pub unsafe fn bind_framebuffer(ctxt: &mut CommandContext, fbo_id: gl::types::GLu
 ///
 /// # Panic
 ///
-/// - Panicks if `layer` is `None` and layered attachments are not supported.
-/// - Panicks if `layer` is `None` and the texture is not an array or a 3D texture.
-/// - Panicks if the texture is an array and attaching an array is not supported.
+/// - Panics if `layer` is `None` and layered attachments are not supported.
+/// - Panics if `layer` is `None` and the texture is not an array or a 3D texture.
+/// - Panics if the texture is an array and attaching an array is not supported.
 ///
 /// # Safety
 ///
 /// All parameters must be valid.
 ///
-unsafe fn attach(ctxt: &mut CommandContext, slot: gl::types::GLenum,
+unsafe fn attach(ctxt: &mut CommandContext<'_>, slot: gl::types::GLenum,
                  id: gl::types::GLuint, attachment: RawAttachment)
 {
     match attachment {

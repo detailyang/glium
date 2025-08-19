@@ -1,9 +1,176 @@
-# Change Log
+# Changelog
+
+## Version 0.36.0 (2024-10-11)
+
+- Fix UB around FDs being closed
+- Fix static mut ref warnings in tests
+- Make `SimpleWindowBuilder` accept `ActiveEventLoop`
+
+## Version 0.35.0 (2024-08-04)
+
+- Updated glutin to version 0.32.0. See the glutin release notes [here](https://github.com/rust-windowing/glutin/blob/master/CHANGELOG.md#version-0320).
+
+## Version 0.34.0 (2024-01-03)
+
+- Updated glutin to version 0.31.0. See the glutin release notes [here](https://github.com/rust-windowing/glutin/blob/master/CHANGELOG.md#version-0310).
+
+## Version 0.33.0 (2023-11-01)
+
+- Add `read` methods for `Unsigned` textures
+- Add `gl::HALF_FLOAT` to `bind_attribute`
+- Lowered version check for `gl_PointSize` from 3.0 to 2.0
+- Added Dynamic Uniform based on `HashMap`.
+- Updated glutin to version 0.30.0. See the glutin release notes [here](https://github.com/rust-windowing/glutin/blob/master/CHANGELOG.md#version-0300).
+
+## Version 0.32.1 (2022-07-31)
+
+- Bugfix release to not panic when given multiple vertex attributes with unspecified location numbers.
+
+## Version 0.32.0 (2022-07-30)
+
+- Updated glutin to version 0.29.0. See the glutin release notes [here](https://github.com/rust-windowing/glutin/blob/master/CHANGELOG.md#version-0290-2022-07-30).
+- Support for location binding for Vertex attributes.
+
+## Version 0.31 (2021-12-11)
+
+- Updated glutin to version 0.28.0. See the glutin release notes [here](https://github.com/rust-windowing/glutin/blob/master/CHANGELOG.md#version-0280-2021-12-02).
+- Use mdbook for the book.
+
+## Version 0.30.2 (2021-09-06)
+
+- Added depth and stencil buffer blitting.
+- Added dual source blending.
+- Implemented AsUniformValue for Texture2d directly.
+
+## Version 0.30.1 (2021-07-12)
+
+- Added `ClientFormat::U1U5U5U5Reversed`.
+- Updated `ouroboros` to 0.10.
+
+## Version 0.30.0 (2021-06-23)
+
+- Updated glutin to version 0.27.0. See the glutin release notes [here](https://github.com/rust-windowing/glutin/blob/master/CHANGELOG.md#version-0270-2021-06-01).
+- Replaced unmaintained `rental` with `ouroboros`.
+- Allow instancing on GLES3 or later.
+- Support for importing and using Vulkan semaphores.
+- Made `Content::read` an unsafe API.
+- Modernized and fixed the third chapter of the tutorial.
+
+## Version 0.29.1 (2021-04-22)
+
+- Updated rand to 0.8.
+- Updated cgmath to 0.18.
+- Made `UniformsStorage` implement `Copy` and `Clone`.
+- Use `$crate::uniform!` internally.
+- Implemented `From` instead of `Into` for some conversions.
+
+## Version 0.29.0 (2020-12-15)
+
+- Updated glutin to version 0.26.0. See the glutin release notes [here](https://github.com/rust-windowing/glutin/blob/master/CHANGELOG.md#version-0260-2020-12-10).
+- Updated memoffset to 0.6.
+- Added support for `glPolygonOffset`.
+- Added support for loading SPIR-V shaders.
+- Switched to edition 2018.
+- Switched from Travis CI to Github Actions
+
+## Version 0.28.0 (2020-10-03)
+
+- Updated glutin to version 0.25.0. See the glutin release notes [here](https://github.com/rust-windowing/glutin/blob/master/CHANGELOG.md#version-0250-2020-10-02).
+- Implemented atomic counters.
+- Added `CubeMapArrays` support.
+
+## Version 0.27.0 (2020-03-26)
+
+- Updated glutin to version 0.24.0. See the glutin release notes [here](https://github.com/rust-windowing/glutin/blob/master/CHANGELOG.md#version-0240-2020-03-11).
+
+## Version 0.26.0 (2020-02-09)
+
+- Updated glutin to version 0.23.0. See the glutin release notes [here](https://github.com/rust-windowing/glutin/blob/master/CHANGELOG.md#version-0230-2020-02-06).
+- Removal of some unsound code that rustc warns about
+- Report the precise shader stage in which a shader failed compilation
+
+## Version 0.25.1 (2019-07-08)
+
+- Silenced deprecation warning when invoking `implement_vertex`.
+
+## Version 0.25.0 (2019-05-24)
+
+- Updated glutin to version 0.21.
+
+## Version 0.24.0 (2019-04-08)
+
+ - Updated glutin to version 0.20. See the glutin release notes [here](https://github.com/rust-windowing/glutin/blob/master/CHANGELOG.md#version-0200-2019-03-09).
+ - Depth comparison and shadow mapping ([#1679](https://github.com/glium/glium/pull/1679)).
+
+## Version 0.23.0 (2018-12-05)
+
+ - Updated glutin to version 0.19. See the glutin release notes [here](https://github.com/rust-windowing/glutin/blob/master/CHANGELOG.md#version-0190-2018-11-09).
+
+## Version 0.22.0 (2018-07-02)
+
+ - Updated glutin to version 0.17.
+ - Updated glutin to version 0.16. Added 'icon_loading' feature.
+
+## Version 0.21.0 (2018-04-11)
+
+ - Updated glutin to version 0.14. Fixes handling of HiDPI on macOS.
+ - Updated gl_generator to version 0.9.
+
+## Version 0.20.0 (2018-01-22)
+
+ - Updated glutin to version 0.12.
+ - Updated smallvec from version 0.4 to 0.6.
+ - Updated misc internal dependencies and dev-dependencies (lazy_static, cgmath, rand, image, gl_generator).
+ - Replaced the `IntoVerticesSource` trait with `Into<VerticesSource>`.
+ - Fixed [rendering bug](https://github.com/glium/glium/issues/1657) on high-DPI screens.
+ - Added support for clipping via `gl_ClipDistance`.
+ - Enabled [depth-stencil FBO attachments](https://github.com/glium/glium/issues/253).
+
+## Version 0.19.0 (2017-12-11)
+
+ - Updated glutin to version 0.11. Notably includes the [winit 0.9 update](https://github.com/rust-windowing/winit/blob/master/CHANGELOG.md#version-090-2017-12-01).
+ - Updated gl_generator to 0.7 (internal dependency).
+
+## Version 0.18.1 (2017-11-05)
+
+ - Fixed links pointing to tomaka/glium instead of glium/glium
+ - Various documentation updates, bugfixes, and dependency updates.
+
+## Version 0.18.0 (2017-10-15)
+
+ - Updated glutin to version 0.10.
+ - Added support for is_buffer_supported usage on all buffer types.
+ - Various documentation updates and bugfixes.
+
+## Version 0.17.1 (2017-08-27)
+
+ - Changed documentation to docs.rs.
+ - Various bugfixes and updates to internal dependencies.
+
+## Version 0.17.0 (2017-07-12)
+
+ - Updated glutin to version 0.9.
+ - Redesigned API around EventsLoop to match updated winit design.
+ - Added support for vector normalization.
+ - Various bugfixes.
+
+## Version 0.16.0 (2017-01-07)
+
+ - Added asynchronous screenshot example.
+ - Updated tutorials to compile on Mac OS X.
+ - Various tutorial documentation updates.
+ - Fix buffer reads which could fail being safe.
+ - Various bugfixes.
+
+## Version 0.15.0 (2016-07-03)
+
+ - Updated glutin to version 0.6.1
+ - Various internal dependency updates.
 
 ## Version 0.14.0 (2016-04-11)
 
  - Updated glutin to version 0.5.
- - Various bufixes.
+ - Various bugfixes.
 
 ## Version 0.13.5 (2016-02-04)
 
@@ -13,7 +180,7 @@
 ## Version 0.13.4 (2016-01-21)
 
  - Added support for shader subroutines.
- - Added various functions to `Context` to retreive information (like the content of `GL_VENDOR` or `GL_RENDERER` for example).
+ - Added various functions to `Context` to retrieve information (like the content of `GL_VENDOR` or `GL_RENDERER` for example).
  - Added additional dimensions getters to the various texture types.
 
 ## Version 0.13.3 (2016-01-08)
@@ -159,7 +326,7 @@
 
  - Textures are now inside submodules (for example `Texture2d` is in `texture::texture2d::Texture2d`) and reexported from `texture`.
  - Added `Context::flush()` and `Context::finish()`. Deprecated `Context::synchronize`.
- - Removed `Sized` contraint for `Surface` that was preventing one from using `&Surface` or `&mut Surface`.
+ - Removed `Sized` constraint for `Surface` that was preventing one from using `&Surface` or `&mut Surface`.
  - Added `TextureAnyMipmap::raw_upload_from_pixel_buffer`.
  - Moved the `pixel_buffer` module to `texture::pixel_buffer` (the old module still exists for backward compatibility).
 

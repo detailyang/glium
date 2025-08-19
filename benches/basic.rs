@@ -5,14 +5,9 @@
 extern crate glium;
 extern crate test;
 
-use glium::DisplayBuild;
 use glium::Surface;
-use glium::glutin;
 
 use test::Bencher;
-
-use std::mem;
-use std::ptr;
 
 mod support;
 
@@ -69,7 +64,6 @@ fn create_program(b: &mut Bencher) {
 }
 
 #[bench]
-#[ignore]       // TODO: segfaults
 fn draw_triangle(b: &mut Bencher) {
     let display = support::build_context();
 

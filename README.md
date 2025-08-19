@@ -1,17 +1,15 @@
 # glium
 
-[![Build Status](https://travis-ci.org/glium/glium.svg?branch=master)](https://travis-ci.org/glium/glium) [![Circle CI](https://circleci.com/gh/tomaka/glium/tree/master.svg?style=svg)](https://circleci.com/gh/tomaka/glium/tree/master) [![Coverage Status](https://coveralls.io/repos/tomaka/glium/badge.svg?branch=master&service=github)](https://coveralls.io/github/tomaka/glium?branch=master)
+[![Build Status](https://github.com/glium/glium/actions/workflows/ci.yml/badge.svg)](https://github.com/glium/glium/actions/workflows/ci.yml)
+[![Coverage Status](https://coveralls.io/repos/tomaka/glium/badge.svg?branch=master&service=github)](https://coveralls.io/github/tomaka/glium?branch=master)
 
-[![](http://meritbadge.herokuapp.com/glium)](https://crates.io/crates/glium)
+[![crates.io page](https://img.shields.io/crates/v/glium.svg)](https://crates.io/crates/glium)
 
-## Note to current and future Glium users: 
+## Note to current and future Glium users:
 
 Glium is [no longer actively developed by its original
 author](https://users.rust-lang.org/t/glium-post-mortem/7063). That said, PRs
-are still welcome and maintenance is continued by the surrounding community. If
-you use Glium and would be interested in seeing it moved to its own
-organisation, you can express your interest
-[here](https://github.com/glium/glium/issues/532).
+are still welcome and maintenance is continued by the surrounding community.
 
 ##
 
@@ -32,11 +30,11 @@ Its objectives:
  - Avoid all OpenGL errors beforehand.
  - Produce optimized OpenGL function calls, and allow the user to easily use modern OpenGL techniques.
 
-## [Link to the documentation](http://docs.rs/glium)
+## [Link to the documentation](https://docs.rs/glium)
 
 If you have some knowledge of OpenGL, the documentation and the examples should get you easily started.
 
-## [Link to a work-in-progress tutorial](http://glium.github.io/glium/book)
+## [Link to a work-in-progress tutorial](https://glium.github.io/glium/book/)
 
 ## Why should I use Glium instead of raw OpenGL calls?
 
@@ -140,5 +138,5 @@ Limitations:
    internal compiler errors, one-hour compile time, etc. happen more often than in smaller
    libraries.
 
- - Rust plugins are not stable, so you will have to use macros such as
-   `implement_vertex!(MyStruct)` instead of `#[derive(GliumVertex)]`.
+ - Macros are yet work-in-progress; see
+  [`glium-derive`](https://github.com/glium/glium_derive) for details.

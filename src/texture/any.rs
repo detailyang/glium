@@ -1,31 +1,33 @@
-use gl;
-use GlObject;
 
-use backend::Facade;
-use version::Version;
-use context::Context;
-use context::CommandContext;
-use CapabilitiesSource;
-use ContextExt;
-use TextureExt;
-use TextureMipmapExt;
-use version::Api;
-use Rect;
+use crate::gl;
+use crate::GlObject;
 
-use image_format::{self, TextureFormatRequest, ClientFormatAny};
-use texture::Texture2dDataSink;
-use texture::TextureKind;
-use texture::{MipmapsOption, TextureFormat, TextureCreationError, CubeLayer};
-use texture::{get_format, InternalFormat, GetFormatError};
-use texture::pixel::PixelValue;
-use texture::pixel_buffer::PixelBuffer;
+use crate::backend::Facade;
+use crate::memory_object::MemoryObject;
+use crate::version::Version;
+use crate::context::Context;
+use crate::context::CommandContext;
+use crate::CapabilitiesSource;
+use crate::ContextExt;
+use crate::TextureExt;
+use crate::TextureMipmapExt;
+use crate::version::Api;
+use crate::Rect;
 
-use fbo::ClearBufferData;
+use crate::image_format::{self, TextureFormatRequest, ClientFormatAny};
+use crate::texture::Texture2dDataSink;
+use crate::texture::TextureKind;
+use crate::texture::{MipmapsOption, TextureFormat, TextureCreationError, CubeLayer};
+use crate::texture::{get_format, InternalFormat, GetFormatError};
+use crate::texture::pixel::PixelValue;
+use crate::texture::pixel_buffer::PixelBuffer;
 
-use buffer::BufferSlice;
-use buffer::BufferAny;
-use BufferExt;
-use BufferSliceExt;
+use crate::fbo::ClearBufferData;
+
+use crate::buffer::BufferSlice;
+use crate::buffer::BufferAny;
+use crate::BufferExt;
+use crate::BufferSliceExt;
 
 use std::cmp;
 use std::fmt;
@@ -35,9 +37,10 @@ use std::borrow::Cow;
 use std::cell::Cell;
 use std::rc::Rc;
 use std::ops::Range;
+use std::ffi::c_void;
 
-use ops;
-use fbo;
+use crate::ops;
+use crate::fbo;
 
 /// Type of a texture.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -73,7 +76,13 @@ pub struct TextureAny {
     generate_mipmaps: bool,
 
     /// Is this texture owned by us? If not, we won't clean it up on drop.
-    owned: bool
+    owned: bool,
+
+    /// If this texture was created in Vulkan for example, it may be backed by external memory.
+    memory: Option<MemoryObject>,
+
+    /// ID of the draw call where the texture was last written as a texture unit.
+    latest_shader_write: Cell<u64>,
 }
 
 fn extract_dimensions(ty: Dimensions)
@@ -107,7 +116,7 @@ fn get_bind_point(ty: Dimensions) -> gl::types::GLenum {
     }
 }
 
-unsafe fn generate_mipmaps(ctxt: &CommandContext,
+unsafe fn generate_mipmaps(ctxt: &CommandContext<'_>,
                            bind_point: gl::types::GLenum) {
     if ctxt.version >= &Version(Api::Gl, 3, 0) ||
        ctxt.version >= &Version(Api::GlEs, 2, 0)
@@ -121,10 +130,6 @@ unsafe fn generate_mipmaps(ctxt: &CommandContext,
 }
 
 /// Builds a new texture.
-///
-/// # Panic
-///
-/// Panicks if the size of the data doesn't match the texture dimensions.
 pub fn new_texture<'a, F: ?Sized, P>(facade: &F, format: TextureFormatRequest,
                              data: Option<(ClientFormatAny, Cow<'a, [P]>)>,
                              mipmaps: MipmapsOption, ty: Dimensions)
@@ -144,7 +149,7 @@ pub fn new_texture<'a, F: ?Sized, P>(facade: &F, format: TextureFormatRequest,
     if let Some((_, ref data)) = data {
         if data.len() * mem::size_of::<P>() != data_bufsize
         {
-            panic!("Texture data size mismatch");
+            return Err(TextureCreationError::DataSizeMismatch);
         }
     }
 
@@ -156,23 +161,19 @@ pub fn new_texture<'a, F: ?Sized, P>(facade: &F, format: TextureFormatRequest,
 
     // checking non-power-of-two
     if facade.get_context().get_version() < &Version(Api::Gl, 2, 0) &&
-        !facade.get_context().get_extensions().gl_arb_texture_non_power_of_two
-    {
-        if !width.is_power_of_two() || !height.unwrap_or(2).is_power_of_two() ||
-            !depth.unwrap_or(2).is_power_of_two() || !array_size.unwrap_or(2).is_power_of_two()
-        {
-            return Err(TextureCreationError::DimensionsNotSupported);
-        }
+        !facade.get_context().get_extensions().gl_arb_texture_non_power_of_two && (!width.is_power_of_two() || !height.unwrap_or(2).is_power_of_two() ||
+            !depth.unwrap_or(2).is_power_of_two() || !array_size.unwrap_or(2).is_power_of_two()) {
+        return Err(TextureCreationError::DimensionsNotSupported);
     }
 
     let should_generate_mipmaps = mipmaps.should_generate();
     let texture_levels = mipmaps.num_levels(width, height, depth) as gl::types::GLsizei;
 
-    let teximg_internal_format = try!(image_format::format_request_to_glenum(facade.get_context(), format, image_format::RequestType::TexImage(data.as_ref().map(|&(c, _)| c))));
+    let teximg_internal_format = image_format::format_request_to_glenum(facade.get_context(), format, image_format::RequestType::TexImage(data.as_ref().map(|&(c, _)| c)))?;
     let storage_internal_format = image_format::format_request_to_glenum(facade.get_context(), format, image_format::RequestType::TexStorage).ok();
 
     let (client_format, client_type) = match (&data, format) {
-        (&Some((client_format, _)), f) => try!(image_format::client_format_to_glenum(facade.get_context(), client_format, f, false)),
+        (&Some((client_format, _)), f) => image_format::client_format_to_glenum(facade.get_context(), client_format, f, false)?,
         (&None, TextureFormatRequest::AnyDepth) => (gl::DEPTH_COMPONENT, gl::FLOAT),
         (&None, TextureFormatRequest::Specific(TextureFormat::DepthFormat(_))) => (gl::DEPTH_COMPONENT, gl::FLOAT),
         (&None, TextureFormatRequest::AnyDepthStencil) => (gl::DEPTH_STENCIL, gl::UNSIGNED_INT_24_8),
@@ -190,11 +191,8 @@ pub fn new_texture<'a, F: ?Sized, P>(facade: &F, format: TextureFormatRequest,
         _ => (gl::LINEAR, gl::LINEAR_MIPMAP_LINEAR),
     };
 
-    let is_multisampled = match ty {
-        Dimensions::Texture2dMultisample {..}
-        | Dimensions::Texture2dMultisampleArray {..} => true,
-        _ => false,
-    };
+    let is_multisampled = matches!(ty, Dimensions::Texture2dMultisample {..}
+        | Dimensions::Texture2dMultisampleArray {..});
 
     let mut ctxt = facade.get_context().make_current();
 
@@ -202,7 +200,7 @@ pub fn new_texture<'a, F: ?Sized, P>(facade: &F, format: TextureFormatRequest,
         let has_mipmaps = texture_levels > 1;
         let data = data;
         let data_raw = if let Some((_, ref data)) = data {
-            data.as_ptr() as *const _
+            data.as_ptr() as *const c_void
         } else {
             ptr::null()
         };
@@ -214,8 +212,8 @@ pub fn new_texture<'a, F: ?Sized, P>(facade: &F, format: TextureFormatRequest,
 
         BufferAny::unbind_pixel_unpack(&mut ctxt);
 
-        let id: gl::types::GLuint = mem::uninitialized();
-        ctxt.gl.GenTextures(1, mem::transmute(&id));
+        let mut id: gl::types::GLuint = 0;
+        ctxt.gl.GenTextures(1, &mut id);
 
         {
             ctxt.gl.BindTexture(bind_point, id);
@@ -297,15 +295,13 @@ pub fn new_texture<'a, F: ?Sized, P>(facade: &F, format: TextureFormatRequest,
                     }
                 }
 
+            } else if is_client_compressed && !data_raw.is_null() {
+                ctxt.gl.CompressedTexImage3D(bind_point, 0, teximg_internal_format as u32,
+                                   width, height, depth, 0, data_bufsize as i32, data_raw);
             } else {
-                if is_client_compressed && !data_raw.is_null() {
-                    ctxt.gl.CompressedTexImage3D(bind_point, 0, teximg_internal_format as u32,
-                                       width, height, depth, 0, data_bufsize as i32, data_raw);
-                } else {
-                    ctxt.gl.TexImage3D(bind_point, 0, teximg_internal_format as i32, width,
-                                       height, depth, 0, client_format as u32, client_type,
-                                       data_raw);
-                }
+                ctxt.gl.TexImage3D(bind_point, 0, teximg_internal_format as i32, width,
+                                   height, depth, 0, client_format as u32, client_type,
+                                   data_raw);
             }
 
         } else if bind_point == gl::TEXTURE_2D || bind_point == gl::TEXTURE_1D_ARRAY ||
@@ -339,14 +335,12 @@ pub fn new_texture<'a, F: ?Sized, P>(facade: &F, format: TextureFormatRequest,
                     }
                 }
 
+            } else if is_client_compressed && !data_raw.is_null() {
+                ctxt.gl.CompressedTexImage2D(bind_point, 0, teximg_internal_format as u32,
+                                   width, height, 0, data_bufsize as i32, data_raw);
             } else {
-                if is_client_compressed && !data_raw.is_null() {
-                    ctxt.gl.CompressedTexImage2D(bind_point, 0, teximg_internal_format as u32,
-                                       width, height, 0, data_bufsize as i32, data_raw);
-                } else {
-                    ctxt.gl.TexImage2D(bind_point, 0, teximg_internal_format as i32, width,
-                                       height, 0, client_format as u32, client_type, data_raw);
-                }
+                ctxt.gl.TexImage2D(bind_point, 0, teximg_internal_format as i32, width,
+                                   height, 0, client_format as u32, client_type, data_raw);
             }
 
         } else if bind_point == gl::TEXTURE_2D_MULTISAMPLE {
@@ -433,14 +427,12 @@ pub fn new_texture<'a, F: ?Sized, P>(facade: &F, format: TextureFormatRequest,
                     }
                 }
 
+            } else if is_client_compressed && !data_raw.is_null() {
+                ctxt.gl.CompressedTexImage1D(bind_point, 0, teximg_internal_format as u32,
+                                   width, 0, data_bufsize as i32, data_raw);
             } else {
-                if is_client_compressed && !data_raw.is_null() {
-                    ctxt.gl.CompressedTexImage1D(bind_point, 0, teximg_internal_format as u32,
-                                       width, 0, data_bufsize as i32, data_raw);
-                } else {
-                    ctxt.gl.TexImage1D(bind_point, 0, teximg_internal_format as i32, width,
-                                       0, client_format as u32, client_type, data_raw);
-                }
+                ctxt.gl.TexImage1D(bind_point, 0, teximg_internal_format as i32, width,
+                                   0, client_format as u32, client_type, data_raw);
             }
 
         } else {
@@ -457,13 +449,15 @@ pub fn new_texture<'a, F: ?Sized, P>(facade: &F, format: TextureFormatRequest,
 
     Ok(TextureAny {
         context: facade.get_context().clone(),
-        id: id,
+        id,
         requested_format: format,
         actual_format: Cell::new(None),
-        ty: ty,
+        ty,
         levels: texture_levels as u32,
         generate_mipmaps: should_generate_mipmaps,
-        owned: true
+        owned: true,
+        memory: None,
+        latest_shader_write: Cell::new(0),
     })
 }
 
@@ -487,14 +481,145 @@ pub unsafe fn from_id<F: Facade + ?Sized>(facade: &F,
     }
     TextureAny {
         context: facade.get_context().clone(),
-        id: id,
+        id,
         requested_format: format,
         actual_format: Cell::new(None),
-        ty: ty,
+        ty,
         levels: mipmap_levels,
         generate_mipmaps: should_generate_mipmaps,
-        owned: owned
+        owned,
+        memory: None,
+        latest_shader_write: Cell::new(0),
     }
+}
+
+/// Builds a new texture reference from an existing texture, externally created by a foreign
+/// API like Vulkan. The texture is imported via an opaque file descriptor.
+#[cfg(target_os = "linux")]
+pub unsafe fn new_from_fd<F: Facade + ?Sized>(facade: &F,
+                                              format: TextureFormat,
+                                              mipmaps: MipmapsOption,
+                                              ty: Dimensions,
+                                              params: super::ImportParameters,
+                                              fd: std::fs::File) -> Result<TextureAny,super::TextureImportError> {
+    use crate::ToGlEnum;
+    let memory = MemoryObject::new_from_fd(facade, params.dedicated_memory, fd, params.size)?;
+    
+    let (width, height, depth, array_size, samples) = extract_dimensions(ty);
+    let mipmap_levels = mipmaps.num_levels(width, height, depth);
+                                                  
+    let should_generate_mipmaps = mipmaps.should_generate();
+    let texture_levels = mipmaps.num_levels(width, height, depth) as gl::types::GLsizei;
+    
+    let bind_point = get_bind_point(ty);
+
+    let storage_internal_format = format.to_glenum();
+
+     let (filtering, mipmap_filtering) = match format {
+        TextureFormat::UncompressedIntegral(_) => (gl::NEAREST, gl::NEAREST_MIPMAP_NEAREST),
+        TextureFormat::UncompressedUnsigned(_) => (gl::NEAREST, gl::NEAREST_MIPMAP_NEAREST),
+        TextureFormat::StencilFormat(_) => (gl::NEAREST, gl::NEAREST_MIPMAP_NEAREST),
+        _ => (gl::LINEAR, gl::LINEAR_MIPMAP_LINEAR),
+     };
+
+    let is_multisampled = matches!(ty, Dimensions::Texture2dMultisample {..}
+                                   | Dimensions::Texture2dMultisampleArray {..});
+
+    let mut ctxt = facade.get_context().make_current();
+
+    let id = {
+        let has_mipmaps = texture_levels > 1;
+
+        let mut id: gl::types::GLuint = 0;
+        ctxt.gl.GenTextures(1, &mut id as *mut u32);
+
+        ctxt.gl.BindTexture(bind_point, id);
+        let act = ctxt.state.active_texture as usize;
+        ctxt.state.texture_units[act].texture = id;
+
+        let gl_tiling: crate::gl::types::GLenum = params.tiling.into();
+
+        ctxt.gl.TexParameteri(bind_point, gl::TEXTURE_TILING_EXT, gl_tiling as i32);
+
+        if !is_multisampled {
+            ctxt.gl.TexParameteri(bind_point, gl::TEXTURE_WRAP_S, gl::REPEAT as i32);
+            ctxt.gl.TexParameteri(bind_point, gl::TEXTURE_MAG_FILTER, filtering as i32);
+        }
+
+        match ty {
+            Dimensions::Texture1d { .. } => (),
+            Dimensions::Texture2dMultisample { .. } => (),
+            Dimensions::Texture2dMultisampleArray { .. } => (),
+            _ => {
+                ctxt.gl.TexParameteri(bind_point, gl::TEXTURE_WRAP_T, gl::REPEAT as i32);
+            },
+        };
+
+        match ty {
+            Dimensions::Texture1d { .. } => (),
+            Dimensions::Texture2d { .. } => (),
+            Dimensions::Texture2dMultisample { .. } => (),
+            _ => {
+                ctxt.gl.TexParameteri(bind_point, gl::TEXTURE_WRAP_R, gl::REPEAT as i32);
+            },
+        };
+
+        if has_mipmaps {
+            ctxt.gl.TexParameteri(bind_point, gl::TEXTURE_MIN_FILTER,
+                                  mipmap_filtering as i32);
+        } else if !is_multisampled {
+            ctxt.gl.TexParameteri(bind_point, gl::TEXTURE_MIN_FILTER,
+                                  filtering as i32);
+        }
+
+        if !has_mipmaps && (ctxt.version >= &Version(Api::Gl, 1, 2) ||
+                            ctxt.version >= &Version(Api::GlEs, 3, 0))
+        {
+            ctxt.gl.TexParameteri(bind_point, gl::TEXTURE_BASE_LEVEL, 0);
+            ctxt.gl.TexParameteri(bind_point, gl::TEXTURE_MAX_LEVEL, 0);
+        }
+
+        if bind_point == gl::TEXTURE_3D || bind_point == gl::TEXTURE_2D_ARRAY || bind_point == gl::TEXTURE_CUBE_MAP_ARRAY {
+            ctxt.gl.TexStorageMem3DEXT(bind_point, texture_levels, storage_internal_format,
+                                       width as gl::types::GLsizei, height.unwrap() as gl::types::GLsizei,
+                                       depth.unwrap() as gl::types::GLsizei, memory.get_id(), params.offset);
+        } else if bind_point == gl::TEXTURE_2D || bind_point == gl::TEXTURE_1D_ARRAY || bind_point == gl::TEXTURE_CUBE_MAP {
+            ctxt.gl.TexStorageMem2DEXT(bind_point, texture_levels, storage_internal_format as gl::types::GLenum,
+                                       width as gl::types::GLsizei, height.unwrap() as gl::types::GLsizei, memory.get_id(),
+                                       params.offset);          
+        } else if bind_point == gl::TEXTURE_2D_MULTISAMPLE {
+            ctxt.gl.TexStorageMem2DMultisampleEXT(bind_point, samples.unwrap() as gl::types::GLsizei,
+                                                  storage_internal_format, width as gl::types::GLsizei,
+                                                  height.unwrap() as gl::types::GLsizei, gl::TRUE, memory.get_id(), params.offset);
+        } else if bind_point == gl::TEXTURE_2D_MULTISAMPLE_ARRAY {
+            ctxt.gl.TexStorageMem3DMultisampleEXT(bind_point, samples.unwrap() as gl::types::GLsizei,
+                                                  storage_internal_format, width as gl::types::GLsizei,
+                                                  height.unwrap() as gl::types::GLsizei, array_size.unwrap() as gl::types::GLsizei,
+                                                  gl::TRUE, memory.get_id(), params.offset);
+        } else if bind_point == gl::TEXTURE_1D {
+            ctxt.gl.TexStorageMem1DEXT(bind_point, texture_levels, storage_internal_format, width as gl::types::GLsizei,
+                                       memory.get_id(), params.offset);
+        }
+
+        if should_generate_mipmaps {
+            generate_mipmaps(&ctxt, bind_point);
+        }
+
+        id
+    };
+    
+    Ok(TextureAny {
+        context: facade.get_context().clone(),
+        id,
+        requested_format: TextureFormatRequest::Specific(format),
+        actual_format: Cell::new(None),
+        ty,
+        levels: mipmap_levels,
+        generate_mipmaps: should_generate_mipmaps,
+        owned: false,
+        memory: Some(memory),
+        latest_shader_write: Cell::new(0),
+    })
 }
 
 impl TextureAny {
@@ -574,7 +699,7 @@ impl TextureAny {
     /// Returns the dimensions of the texture.
     #[inline]
     pub fn dimensions(&self) -> Dimensions {
-        self.ty.clone()
+        self.ty
     }
 
     /// Returns the array size of the texture.
@@ -606,7 +731,7 @@ impl TextureAny {
     /// Returns a structure that represents the first layer of the texture. All textures have a
     /// first layer.
     #[inline]
-    pub fn first_layer(&self) -> TextureAnyLayer {
+    pub fn first_layer(&self) -> TextureAnyLayer<'_> {
         self.layer(0).unwrap()
     }
 
@@ -617,14 +742,14 @@ impl TextureAny {
     ///
     /// Returns `None` if out of range.
     #[inline]
-    pub fn layer(&self, layer: u32) -> Option<TextureAnyLayer> {
+    pub fn layer(&self, layer: u32) -> Option<TextureAnyLayer<'_>> {
         if layer >= self.get_array_size().unwrap_or(1) {
             return None;
         }
 
         Some(TextureAnyLayer {
             texture: self,
-            layer: layer,
+            layer,
         })
     }
 
@@ -643,8 +768,21 @@ impl TextureAny {
         } else {
             let mut ctxt = self.context.make_current();
             let format = get_format::get_format(&mut ctxt, self);
-            self.actual_format.set(Some(format.clone()));
+            self.actual_format.set(Some(format));
             format
+        }
+    }
+
+    /// Determines the number of depth and stencil bits in the format of this texture.
+    pub fn get_depth_stencil_bits(&self) -> (u16, u16) {
+        unsafe {
+            let ctxt = self.context.make_current();
+            let mut depth_bits: gl::types::GLint = 0;
+            let mut stencil_bits: gl::types::GLint = 0;
+            // FIXME: GL version considerations
+            ctxt.gl.GetTextureLevelParameteriv(self.id, 0, gl::TEXTURE_DEPTH_SIZE, &mut depth_bits);
+            ctxt.gl.GetTextureLevelParameteriv(self.id, 0, gl::TEXTURE_STENCIL_SIZE, &mut stencil_bits);
+            (depth_bits as u16, stencil_bits as u16)
         }
     }
 
@@ -656,7 +794,7 @@ impl TextureAny {
 
     /// Returns a structure that represents the main mipmap level of the texture.
     #[inline]
-    pub fn main_level(&self) -> TextureAnyMipmap {
+    pub fn main_level(&self) -> TextureAnyMipmap<'_> {
         self.mipmap(0).unwrap()
     }
 
@@ -664,7 +802,7 @@ impl TextureAny {
     ///
     /// Returns `None` if out of range.
     #[inline]
-    pub fn mipmap(&self, level: u32) -> Option<TextureAnyMipmap> {
+    pub fn mipmap(&self, level: u32) -> Option<TextureAnyMipmap<'_>> {
         if level >= self.levels {
             return None;
         }
@@ -672,7 +810,7 @@ impl TextureAny {
         let pow = 2u32.pow(level);
         Some(TextureAnyMipmap {
             texture: self,
-            level: level,
+            level,
             width: cmp::max(1, self.get_width() / pow),
             height: self.get_height().map(|height| cmp::max(1, height / pow)),
             depth: self.get_depth().map(|depth| cmp::max(1, depth / pow)),
@@ -701,10 +839,10 @@ impl TextureExt for TextureAny {
 
     #[inline]
     fn get_bind_point(&self) -> gl::types::GLenum {
-        return get_bind_point(self.ty);
+        get_bind_point(self.ty)
     }
 
-    fn bind_to_current(&self, ctxt: &mut CommandContext) -> gl::types::GLenum {
+    fn bind_to_current(&self, ctxt: &mut CommandContext<'_>) -> gl::types::GLenum {
         let bind_point = self.get_bind_point();
 
         let texture_unit = ctxt.state.active_texture;
@@ -715,6 +853,37 @@ impl TextureExt for TextureAny {
 
         bind_point
     }
+
+    fn prepare_for_access(&self, ctxt: &mut CommandContext<'_>, access_type: crate::TextureAccess) {
+        match access_type {
+            crate::TextureAccess::TextureFetch => {
+                if self.latest_shader_write.get() >= ctxt.state.latest_memory_barrier_texture_fetch {
+                    unsafe { ctxt.gl.MemoryBarrier(gl::TEXTURE_FETCH_BARRIER_BIT); }
+                    ctxt.state.latest_memory_barrier_texture_fetch = ctxt.state.next_draw_call_id;
+                }
+            },
+            crate::TextureAccess::ImageUnit { will_write } =>{
+                if self.latest_shader_write.get() >= ctxt.state.latest_memory_barrier_shader_image_access {
+                    unsafe { ctxt.gl.MemoryBarrier(gl::SHADER_IMAGE_ACCESS_BARRIER_BIT); }
+                    ctxt.state.latest_memory_barrier_shader_image_access = ctxt.state.next_draw_call_id;
+                }
+
+                if will_write {
+                    self.latest_shader_write.set(ctxt.state.next_draw_call_id);
+                }
+            },
+            crate::TextureAccess::Framebuffer => {
+                if self.latest_shader_write.get() >= ctxt.state.latest_memory_barrier_framebuffer {
+                    unsafe { ctxt.gl.MemoryBarrier(gl::FRAMEBUFFER_BARRIER_BIT); }
+                    ctxt.state.latest_memory_barrier_framebuffer = ctxt.state.next_draw_call_id;
+                }
+            },
+        }        
+    }
+
+
+
+
 }
 
 impl GlObject for TextureAny {
@@ -728,7 +897,7 @@ impl GlObject for TextureAny {
 
 impl fmt::Debug for TextureAny {
     #[inline]
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(fmt, "Texture #{} (dimensions: {}x{}x{}x{})", self.id,
                self.get_width(), self.get_height().unwrap_or(1), self.get_depth().unwrap_or(1),
                self.get_array_size().unwrap_or(1))
@@ -802,7 +971,7 @@ impl<'a> TextureAnyLayer<'a> {
 
         Some(TextureAnyLayerMipmap {
             texture: self.texture,
-            level: level,
+            level,
             layer: self.layer,
             width: cmp::max(1, self.texture.get_width() / pow),
             height: self.texture.get_height().map(|height| cmp::max(1, height / pow)),
@@ -861,7 +1030,7 @@ impl<'a> TextureAnyMipmap<'a> {
             Dimensions::Texture1dArray { array_size, .. } => array_size,
             _ => self.height.unwrap_or(1),
         };
-        return (self.width, tex_height, tex_depth);
+        (self.width, tex_height, tex_depth)
     }
 
     /// Returns the number of samples of the texture.
@@ -915,7 +1084,7 @@ impl<'a> TextureAnyMipmap<'a> {
 
         Some(TextureAnyLayerMipmap {
             texture: self.texture,
-            layer: layer,
+            layer,
             level: self.level,
             width: self.width,
             height: self.height,
@@ -935,7 +1104,7 @@ impl<'a> TextureAnyMipmap<'a> {
     /// Panics if the offsets and dimensions are outside the boundaries of the texture. Panics
     /// if the buffer is not big enough to hold the data.
     #[inline]
-    pub fn raw_upload_from_pixel_buffer<P>(&self, source: BufferSlice<[P]>, x: Range<u32>,
+    pub fn raw_upload_from_pixel_buffer<P>(&self, source: BufferSlice<'_, [P]>, x: Range<u32>,
                                            y: Range<u32>, z: Range<u32>)
                                            where P: PixelValue
     {
@@ -949,14 +1118,14 @@ impl<'a> TextureAnyMipmap<'a> {
     /// Panics if the offsets and dimensions are outside the boundaries of the texture. Panics
     /// if the buffer is not big enough to hold the data.
     #[inline]
-    pub fn raw_upload_from_pixel_buffer_inverted<P>(&self, source: BufferSlice<[P]>,
+    pub fn raw_upload_from_pixel_buffer_inverted<P>(&self, source: BufferSlice<'_, [P]>,
                                                     x: Range<u32>, y: Range<u32>, z: Range<u32>)
                                                     where P: PixelValue
     {
         self.raw_upload_from_pixel_buffer_impl(source, x, y, z, true);
     }
 
-    fn raw_upload_from_pixel_buffer_impl<P>(&self, source: BufferSlice<[P]>, x: Range<u32>,
+    fn raw_upload_from_pixel_buffer_impl<P>(&self, source: BufferSlice<'_, [P]>, x: Range<u32>,
                                             y: Range<u32>, z: Range<u32>, inverted: bool)
                                             where P: PixelValue
     {
@@ -1156,10 +1325,10 @@ impl<'t> TextureMipmapExt for TextureAnyMipmap<'t> {
             panic!("Texture data size mismatch");
         }
 
-        let (client_format, client_type) = try!(image_format::client_format_to_glenum(&self.texture.context,
-                                                                                      format,
-                                                                                      self.texture.requested_format, false)
-                                                                                      .map_err(|_| ()));
+        let (client_format, client_type) = image_format::client_format_to_glenum(&self.texture.context,
+                                                                                 format,
+                                                                                 self.texture.requested_format, false)
+                                                                                 .map_err(|_| ())?;
 
         let mut ctxt = self.texture.context.make_current();
 
@@ -1226,13 +1395,13 @@ impl<'t> TextureMipmapExt for TextureAnyMipmap<'t> {
         unsafe {
             let bind_point = texture.bind_to_current(&mut ctxt);
 
-            let mut is_compressed = mem::uninitialized();
+            let mut is_compressed = 0;
             ctxt.gl.GetTexLevelParameteriv(bind_point, level, gl::TEXTURE_COMPRESSED, &mut is_compressed);
             if is_compressed != 0 {
 
-                let mut buffer_size = mem::uninitialized();
+                let mut buffer_size = 0;
                 ctxt.gl.GetTexLevelParameteriv(bind_point, level, gl::TEXTURE_COMPRESSED_IMAGE_SIZE, &mut buffer_size);
-                let mut internal_format = mem::uninitialized();
+                let mut internal_format = 0;
                 ctxt.gl.GetTexLevelParameteriv(bind_point, level, gl::TEXTURE_INTERNAL_FORMAT, &mut internal_format);
 
                 match ClientFormatAny::from_internal_compressed_format(internal_format as gl::types::GLenum) {
@@ -1344,7 +1513,7 @@ impl<'a> TextureAnyLayerMipmap<'a> {
             texture: self.texture,
             layer: self.layer,
             level: self.level,
-            cube_layer: cube_layer,
+            cube_layer,
             width: self.width,
             height: self.height,
         })
@@ -1417,7 +1586,8 @@ impl<'a> TextureAnyImage<'a> {
     ///
     /// # Panic
     ///
-    /// Panicks if the rect is out of range.
+    /// - Panics if the rect is out of range.
+    /// - Panics if it fails to read the texture.
     ///
     pub fn raw_read<T, P>(&self, rect: &Rect) -> T where T: Texture2dDataSink<P>, P: PixelValue {
         assert!(rect.left + rect.width <= self.width);
@@ -1426,7 +1596,9 @@ impl<'a> TextureAnyImage<'a> {
         let mut ctxt = self.texture.context.make_current();
 
         let mut data = Vec::new();
-        ops::read(&mut ctxt, &fbo::RegularAttachment::Texture(*self), &rect, &mut data, false);
+        ops::read(&mut ctxt, &fbo::RegularAttachment::Texture(*self), &rect, &mut data, false)
+            .unwrap();
+
         T::from_raw(Cow::Owned(data), self.width, self.height.unwrap_or(1))
     }
 
@@ -1434,8 +1606,9 @@ impl<'a> TextureAnyImage<'a> {
     ///
     /// # Panic
     ///
-    /// - Panicks if the rect is out of range.
-    /// - Panicks if the buffer is not large enough.
+    /// - Panics if the rect is out of range.
+    /// - Panics if the buffer is not large enough.
+    /// - Panics if it fails to read the texture.
     ///
     pub fn raw_read_to_pixel_buffer<P>(&self, rect: &Rect, dest: &PixelBuffer<P>)
         where P: PixelValue
@@ -1446,14 +1619,15 @@ impl<'a> TextureAnyImage<'a> {
 
         let size = rect.width as usize * rect.height as usize * 4;
         let mut ctxt = self.texture.context.make_current();
-        ops::read(&mut ctxt, &fbo::RegularAttachment::Texture(*self), &rect, dest, false);
+        ops::read(&mut ctxt, &fbo::RegularAttachment::Texture(*self), &rect, dest, false)
+            .unwrap();
     }
 
     /// Clears the content of the texture to a specific value.
     ///
     /// # Panic
     ///
-    /// Panicks if `data` does not match the kind of texture. For example passing a `[i32; 4]` when
+    /// Panics if `data` does not match the kind of texture. For example passing a `[i32; 4]` when
     /// using a regular (float) texture.
     ///
     pub fn raw_clear_buffer<D>(&self, data: D)

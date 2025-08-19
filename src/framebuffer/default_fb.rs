@@ -2,25 +2,26 @@
 
 use std::rc::Rc;
 
-use backend::Facade;
-use context::Context;
+use crate::backend::Facade;
+use crate::context::Context;
 
-use DrawParameters;
-use FboAttachments;
-use Rect;
-use BlitTarget;
-use ContextExt;
-use ToGlEnum;
-use ops;
-use uniforms;
+use crate::{DrawParameters, BlitMask};
+use crate::FboAttachments;
+use crate::Rect;
+use crate::BlitTarget;
+use crate::ContextExt;
+use crate::ToGlEnum;
+use crate::ops;
+use crate::uniforms;
 
-use {Program, Surface};
-use DrawError;
+use crate::{Program, Surface};
+use crate::DrawError;
 
-use {fbo, gl};
-use framebuffer;
-use index;
-use vertex;
+use crate::fbo;
+use crate::index;
+use crate::vertex;
+use crate::framebuffer::{SimpleFrameBuffer, MultiOutputFrameBuffer};
+use crate::uniforms::MagnifySamplerFilter;
 
 /// One of the color attachments on the default framebuffer.
 #[derive(Copy, Clone, Debug)]
@@ -76,7 +77,7 @@ impl Surface for DefaultFramebuffer {
 
     fn draw<'a, 'b, V, I, U>(&mut self, vertex_buffer: V,
                          index_buffer: I, program: &Program, uniforms: &U,
-                         draw_parameters: &DrawParameters) -> Result<(), DrawError>
+                         draw_parameters: &DrawParameters<'_>) -> Result<(), DrawError>
                          where I: Into<index::IndicesSource<'a>>, U: uniforms::Uniforms,
                          V: vertex::MultiVerticesSource<'b>
     {
@@ -112,35 +113,27 @@ impl Surface for DefaultFramebuffer {
     }
 
     #[inline]
-    fn blit_from_frame(&self, source_rect: &Rect, target_rect: &BlitTarget,
-                       filter: uniforms::MagnifySamplerFilter)
-    {
+    fn blit_buffers_from_frame(&self, source_rect: &Rect, target_rect: &BlitTarget, filter: MagnifySamplerFilter, mask: BlitMask) {
         ops::blit(&self.context, None, self.get_attachments(),
-                  gl::COLOR_BUFFER_BIT, source_rect, target_rect, filter.to_glenum())
+                  mask.to_glenum(), source_rect, target_rect, filter.to_glenum())
     }
 
     #[inline]
-    fn blit_from_simple_framebuffer(&self, source: &framebuffer::SimpleFrameBuffer,
-                                    source_rect: &Rect, target_rect: &BlitTarget,
-                                    filter: uniforms::MagnifySamplerFilter)
-    {
+    fn blit_buffers_from_simple_framebuffer(&self, source: &SimpleFrameBuffer<'_>, source_rect: &Rect, target_rect: &BlitTarget, filter: MagnifySamplerFilter, mask: BlitMask) {
         ops::blit(&self.context, source.get_attachments(), self.get_attachments(),
-                  gl::COLOR_BUFFER_BIT, source_rect, target_rect, filter.to_glenum())
+                  mask.to_glenum(), source_rect, target_rect, filter.to_glenum())
     }
 
     #[inline]
-    fn blit_from_multioutput_framebuffer(&self, source: &framebuffer::MultiOutputFrameBuffer,
-                                         source_rect: &Rect, target_rect: &BlitTarget,
-                                         filter: uniforms::MagnifySamplerFilter)
-    {
+    fn blit_buffers_from_multioutput_framebuffer(&self, source: &MultiOutputFrameBuffer<'_>, source_rect: &Rect, target_rect: &BlitTarget, filter: MagnifySamplerFilter, mask: BlitMask) {
         ops::blit(&self.context, source.get_attachments(), self.get_attachments(),
-                  gl::COLOR_BUFFER_BIT, source_rect, target_rect, filter.to_glenum())
+                  mask.to_glenum(), source_rect, target_rect, filter.to_glenum())
     }
 }
 
 impl FboAttachments for DefaultFramebuffer {
     #[inline]
-    fn get_attachments(&self) -> Option<&fbo::ValidatedAttachments> {
+    fn get_attachments(&self) -> Option<&fbo::ValidatedAttachments<'_>> {
         None
     }
 }

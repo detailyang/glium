@@ -1,7 +1,7 @@
+use crate::gl;
+use crate::version::Api;
+use crate::version::Version;
 use std::ffi::CStr;
-use version::Version;
-use version::Api;
-use gl;
 
 macro_rules! extensions {
     ($($string:expr => $field:ident,)+) => {
@@ -9,6 +9,7 @@ macro_rules! extensions {
         #[derive(Debug, Clone, Copy)]
         pub struct ExtensionsList {
             $(
+                #[allow(missing_docs)]
                 pub $field: bool,
             )+
         }
@@ -56,6 +57,7 @@ extensions! {
     "GL_APPLE_vertex_array_object" => gl_apple_vertex_array_object,
     "GL_ARB_bindless_texture" => gl_arb_bindless_texture,
     "GL_ARB_buffer_storage" => gl_arb_buffer_storage,
+    "GL_ARB_clip_control" => gl_arb_clip_control,
     "GL_ARB_compute_shader" => gl_arb_compute_shader,
     "GL_ARB_copy_buffer" => gl_arb_copy_buffer,
     "GL_ARB_debug_output" => gl_arb_debug_output,
@@ -75,6 +77,7 @@ extensions! {
     "GL_ARB_framebuffer_sRGB" => gl_arb_framebuffer_srgb,
     "GL_ARB_geometry_shader4" => gl_arb_geometry_shader4,
     "GL_ARB_get_program_binary" => gl_arb_get_programy_binary,
+    "GL_ARB_gl_spirv" => gl_arb_gl_spirv,
     "GL_ARB_gpu_shader_fp64" => gl_arb_gpu_shader_fp64,
     "GL_ARB_gpu_shader_int64" => gl_arb_gpu_shader_int64,
     "GL_ARB_instanced_arrays" => gl_arb_instanced_arrays,
@@ -91,6 +94,8 @@ extensions! {
     "GL_ARB_robustness" => gl_arb_robustness,
     "GL_ARB_robust_buffer_access_behavior" => gl_arb_robust_buffer_access_behavior,
     "GL_ARB_sampler_objects" => gl_arb_sampler_objects,
+    "GL_ARB_seamless_cube_map" => gl_arb_seamless_cube_map,
+    "GL_ARB_shader_atomic_counters" => gl_arb_shader_atomic_counters,
     "GL_ARB_shader_image_load_store" => gl_arb_shader_image_load_store,
     "GL_ARB_shader_objects" => gl_arb_shader_objects,
     "GL_ARB_shader_storage_buffer_object" => gl_arb_shader_storage_buffer_object,
@@ -126,6 +131,8 @@ extensions! {
     "GL_EXT_buffer_storage" => gl_ext_buffer_storage,
     "GL_EXT_debug_marker" => gl_ext_debug_marker,
     "GL_EXT_direct_state_access" => gl_ext_direct_state_access,
+    "GL_EXT_memory_object" => gl_ext_memory_object,
+    "GL_EXT_memory_object_fd" => gl_ext_memory_object_fd,
     "GL_EXT_disjoint_timer_query" => gl_ext_disjoint_timer_query,
     "GL_EXT_framebuffer_blit" => gl_ext_framebuffer_blit,
     "GL_EXT_framebuffer_object" => gl_ext_framebuffer_object,
@@ -144,6 +151,8 @@ extensions! {
     "GL_EXT_robustness" => gl_ext_robustness,
     "GL_EXT_sRGB_write_control" => gl_ext_srgb_write_control,
     "GL_EXT_texture3D" => gl_ext_texture3d,
+    "GL_EXT_semaphore" => gl_ext_semaphore,
+    "GL_EXT_semaphore_fd" => gl_ext_semaphore_fd,
     "GL_EXT_texture_array" => gl_ext_texture_array,
     "GL_EXT_texture_buffer" => gl_ext_texture_buffer,
     "GL_EXT_texture_buffer_object" => gl_ext_texture_buffer_object,
@@ -172,7 +181,10 @@ extensions! {
     "GL_NV_read_depth" => gl_nv_read_depth,
     "GL_NV_read_stencil" => gl_nv_read_stencil,
     "GL_NV_read_depth_stencil" => gl_nv_read_depth_stencil,
+    "GL_NV_shader_atomic_counters" => gl_nv_shader_atomic_counters,
+    "GL_NV_shader_storage_buffer_object" => gl_nv_shader_storage_buffer_object,
     "GL_NV_texture_array" => gl_nv_texture_array,
+    "GL_NV_transform_feedback" => gl_nv_transform_feedback,
     "GL_NV_vertex_attrib_integer_64bit" => gl_nv_vertex_attrib_integer_64bit,
     "GL_NVX_gpu_memory_info" => gl_nvx_gpu_memory_info,
     "GL_OES_depth_texture" => gl_oes_depth_texture,

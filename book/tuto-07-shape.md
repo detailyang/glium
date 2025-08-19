@@ -2,7 +2,7 @@
 
 Instead of drawing a triangle, we are now going to draw a more complex shape: a teapot.
 The Utah teapot is a famous 3D model that is often considered as one of the "hello world"s of
-graphics programing.
+graphics programming.
 
 In a real application, complex models (by "complex" I mean anything more than a few vertices)
 are loaded from files at runtime. But for the purpose of this tutorial, we are going to use a Rust
@@ -119,7 +119,7 @@ target.draw((&positions, &normals), &indices, &program, &uniform! { matrix: matr
 
 And if you execute this code, you will see...
 
-![The result](tuto-07-wrong.png)
+![The result](resources/tuto-07-wrong.png)
 
 ...wait, something's wrong!
 
@@ -142,8 +142,8 @@ let matrix = [
 
 And you should now get the correct result:
 
-![The correct result](tuto-07-correct.png)
+![The correct result](resources/tuto-07-correct.png)
 
 This looks very primitive, but it is a good first step towards 3D rendering.
 
-**[You can find the entire source code here](https://github.com/tomaka/glium/blob/master/examples/tutorial-07.rs).**
+**[You can find the entire source code here](https://github.com/glium/glium/blob/master/examples/tutorial-07.rs).**

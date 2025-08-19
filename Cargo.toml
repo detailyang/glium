@@ -1,6 +1,6 @@
 [package]
 name = "glium"
-version = "0.17.0"
+version = "0.36.0"
 authors = ["Pierre Krieger <pierre.krieger1708@gmail.com>"]
 description = """
 Elegant and safe OpenGL wrapper.
@@ -18,34 +18,66 @@ Its objectives:
 """
 keywords = ["opengl", "gamedev"]
 categories = ["api-bindings", "rendering::graphics-api"]
-documentation = "http://glium.github.io/glium/glium/index.html"
+documentation = "https://docs.rs/glium"
 repository = "https://github.com/glium/glium"
+readme = "README.md"
 license = "Apache-2.0"
 build = "build/main.rs"
-exclude = ["doc", ".travis.yml", "circle.yml"]
+exclude = ["doc"]
+edition = "2021"
 
 [features]
-default = ["glutin"]
+default = ["glutin_backend", "simple_window_builder", "glutin/default", "winit/default", "glutin-winit/default"]
+glutin_backend = ["glutin"]
 unstable = [] # used for benchmarks
-test_headless = []  # used for testing headless display
+vk_interop = [] # used for texture import from Vulkan
+simple_window_builder = ["glutin", "glutin-winit", "winit", "raw-window-handle"] # used in the tutorial
 
 [dependencies.glutin]
-version = "0.9"
+version = "0.32"
 features = []
 optional = true
+default-features = false
+
+[dependencies.glutin-winit]
+version = "0.5"
+features = []
+optional = true
+default-features = false
+
+[dependencies.winit]
+version = "0.30"
+features = []
+optional = true
+default-features = false
+
+[dependencies.raw-window-handle]
+version = "0.6"
+features = []
+optional = true
+default-features = false
 
 [dependencies]
-backtrace = "0.2.1"
-lazy_static = "0.2"
-smallvec = "0.1.5"
-fnv = "1.0.3"
+memoffset = "0.9.0"
+backtrace = "0.3.2"
+smallvec = "1.0"
+fnv = "1.0.5"
 
 [build-dependencies]
-gl_generator = "0.5.1"
+gl_generator = "0.14"
 
 [dev-dependencies]
-cgmath = "0.9.1"
-genmesh = "0.4"
-image = "0.12.0"
-obj = { version = "0.5", features = ["usegenmesh"] }
-rand = "0.3"
+ouroboros = "0.18"
+cgmath = "0.18"
+genmesh = "0.6"
+image = "0.25"
+obj = { version = "0.10", features = ["genmesh"] }
+rand = "0.8"
+libc = "0.2.62"
+winit = "0.30"
+raw-window-handle = "0.6"
+glutin-winit = "0.5"
+takeable-option = "0.5"
+
+[package.metadata.docs.rs]
+all-features = true

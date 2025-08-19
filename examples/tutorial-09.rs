@@ -1,21 +1,22 @@
 #[macro_use]
 extern crate glium;
+use glium::Surface;
 
 #[path = "../book/tuto-07-teapot.rs"]
 mod teapot;
 
 fn main() {
-    use glium::{glutin, Surface};
-
-    let mut events_loop = glutin::EventsLoop::new();
-    let window = glutin::WindowBuilder::new();
-    let context = glutin::ContextBuilder::new().with_depth_buffer(24);
-    let display = glium::Display::new(window, context, &events_loop).unwrap();
+    let event_loop = glium::winit::event_loop::EventLoop::builder()
+        .build()
+        .expect("event loop building");
+    let (window, display) = glium::backend::glutin::SimpleWindowBuilder::new()
+        .with_title("Glium tutorial #9")
+        .build(&event_loop);
 
     let positions = glium::VertexBuffer::new(&display, &teapot::VERTICES).unwrap();
     let normals = glium::VertexBuffer::new(&display, &teapot::NORMALS).unwrap();
     let indices = glium::IndexBuffer::new(&display, glium::index::PrimitiveType::TrianglesList,
-                                          &teapot::INDICES).unwrap();
+                                        &teapot::INDICES).unwrap();
 
     let vertex_shader_src = r#"
         #version 150
@@ -49,43 +50,56 @@ fn main() {
     "#;
 
     let program = glium::Program::from_source(&display, vertex_shader_src, fragment_shader_src,
-                                              None).unwrap();
+                                            None).unwrap();
 
-    let mut closed = false;
-    while !closed {
-        let mut target = display.draw();
-        target.clear_color_and_depth((0.0, 0.0, 1.0, 1.0), 1.0);
+    #[allow(deprecated)]
+    event_loop.run(move |ev, window_target| {
+        match ev {
+            glium::winit::event::Event::WindowEvent { event, .. } => match event {
+                glium::winit::event::WindowEvent::CloseRequested => {
+                    window_target.exit();
+                },
+                // We now need to render everyting in response to a RedrawRequested event due to the animation
+                glium::winit::event::WindowEvent::RedrawRequested => {
+                    let mut target = display.draw();
+                    target.clear_color_and_depth((0.0, 0.0, 1.0, 1.0), 1.0);
 
-        let matrix = [
-            [0.01, 0.0, 0.0, 0.0],
-            [0.0, 0.01, 0.0, 0.0],
-            [0.0, 0.0, 0.01, 0.0],
-            [0.0, 0.0, 0.0, 1.0f32]
-        ];
+                    let matrix = [
+                        [0.01, 0.0, 0.0, 0.0],
+                        [0.0, 0.01, 0.0, 0.0],
+                        [0.0, 0.0, 0.01, 0.0],
+                        [0.0, 0.0, 0.0, 1.0f32]
+                    ];
 
-        let light = [-1.0, 0.4, 0.9f32];
+                    let light = [-1.0, 0.4, 0.9f32];
 
-        let params = glium::DrawParameters {
-            depth: glium::Depth {
-                test: glium::draw_parameters::DepthTest::IfLess,
-                write: true,
-                .. Default::default()
-            },
-            .. Default::default()
-        };
+                    let params = glium::DrawParameters {
+                        depth: glium::Depth {
+                            test: glium::draw_parameters::DepthTest::IfLess,
+                            write: true,
+                            .. Default::default()
+                        },
+                        .. Default::default()
+                    };
 
-        target.draw((&positions, &normals), &indices, &program,
-                    &uniform! { matrix: matrix, u_light: light }, &params).unwrap();
-        target.finish().unwrap();
-
-        events_loop.poll_events(|event| {
-            match event {
-                glutin::Event::WindowEvent { event, .. } => match event {
-                    glutin::WindowEvent::Closed => closed = true,
-                    _ => ()
+                    target.draw((&positions, &normals), &indices, &program,
+                                &uniform! { matrix: matrix, u_light: light }, &params).unwrap();
+                    target.finish().unwrap();
+                },
+                // Because glium doesn't know about windows we need to resize the display
+                // when the window's size has changed.
+                glium::winit::event::WindowEvent::Resized(window_size) => {
+                    display.resize(window_size.into());
                 },
                 _ => (),
-            }
-        });
-    }
+            },
+            // By requesting a redraw in response to a AboutToWait event we get continuous rendering.
+            // For applications that only change due to user input you could remove this handler.
+            glium::winit::event::Event::AboutToWait => {
+                window.request_redraw();
+            },
+            _ => (),
+        }
+    })
+    .unwrap();
 }

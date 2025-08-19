@@ -32,7 +32,8 @@ Once you have a struct that implements the `Vertex` trait, you can build an arra
 upload it to the video memory by creating a `VertexBuffer`.
 
 ```no_run
-# let display: glium::Display = unsafe { ::std::mem::uninitialized() };
+# use glutin::surface::{ResizeableSurface, SurfaceTypeTrait};
+# fn example<T>(display: glium::Display<T>) where T: SurfaceTypeTrait + ResizeableSurface {
 # #[derive(Copy, Clone)]
 # struct MyVertex {
 #     position: [f32; 3],
@@ -57,6 +58,7 @@ let data = &[
 ];
 
 let vertex_buffer = glium::vertex::VertexBuffer::new(&display, data);
+# }
 ```
 
 ## Drawing
@@ -67,24 +69,19 @@ Each source can be:
  - A reference to a `VertexBuffer`.
  - A slice of a vertex buffer, by calling `vertex_buffer.slice(start .. end).unwrap()`.
  - A vertex buffer where each element corresponds to an instance, by
-   caling `vertex_buffer.per_instance()`.
+   calling `vertex_buffer.per_instance()`.
  - The same with a slice, by calling `vertex_buffer.slice(start .. end).unwrap().per_instance()`.
  - A marker indicating a number of vertex sources, with `glium::vertex::EmptyVertexAttributes`.
  - A marker indicating a number of instances, with `glium::vertex::EmptyInstanceAttributes`.
 
 ```no_run
 # use glium::Surface;
-# let display: glium::Display = unsafe { ::std::mem::uninitialized() };
-# #[derive(Copy, Clone)]
-# struct MyVertex { position: [f32; 3], texcoords: [f32; 2], }
-# impl glium::vertex::Vertex for MyVertex {
-#     fn build_bindings() -> glium::vertex::VertexFormat { unimplemented!() }
-# }
-# let program: glium::program::Program = unsafe { ::std::mem::uninitialized() };
+# use glutin::surface::{ResizeableSurface, SurfaceTypeTrait};
+# fn example<T, V>(display: glium::Display<T>, program: glium::program::Program,
+#            vertex_buffer: glium::vertex::VertexBuffer<V>, vertex_buffer2: glium::vertex::VertexBuffer<V>)
+#     where T: SurfaceTypeTrait + ResizeableSurface, V: glium::vertex::Vertex {
 # let indices = glium::index::NoIndices(glium::index::PrimitiveType::TrianglesList);
 # let uniforms = glium::uniforms::EmptyUniforms;
-# let vertex_buffer: glium::vertex::VertexBuffer<MyVertex> = unsafe { ::std::mem::uninitialized() };
-# let vertex_buffer2: glium::vertex::VertexBuffer<MyVertex> = unsafe { ::std::mem::uninitialized() };
 # let mut frame = display.draw();
 // drawing with a single vertex buffer
 frame.draw(&vertex_buffer, &indices, &program, &uniforms, &Default::default()).unwrap();
@@ -112,13 +109,14 @@ frame.draw((&vertex_buffer, vertex_buffer2.per_instance().unwrap()), &indices,
 // instancing without any per-instance attribute
 frame.draw((&vertex_buffer, glium::vertex::EmptyInstanceAttributes { len: 36 }), &indices,
            &program, &uniforms, &Default::default()).unwrap();
+# }
 ```
 
 Note that if you use `index::EmptyIndices` as indices the length of all vertex sources must
 be the same, or a `DrawError::VerticesSourcesLengthMismatch` will be produced.
 
 In all situation, the length of all per-instance sources must match, or
-`DrawError::InstancesCountMismatch` will be retured.
+`DrawError::InstancesCountMismatch` will be returned.
 
 # Transform feedback
 
@@ -141,8 +139,8 @@ pub use self::buffer::CreationError as BufferCreationError;
 pub use self::format::{AttributeType, VertexFormat};
 pub use self::transform_feedback::{is_transform_feedback_supported, TransformFeedbackSession};
 
-use buffer::BufferAnySlice;
-use CapabilitiesSource;
+use crate::buffer::BufferAnySlice;
+use crate::CapabilitiesSource;
 
 mod buffer;
 mod format;
@@ -157,7 +155,7 @@ pub enum VerticesSource<'a> {
     ///
     /// The third parameter tells whether or not this buffer is "per instance" (true) or
     /// "per vertex" (false).
-    VertexBuffer(BufferAnySlice<'a>, &'a VertexFormat, bool),
+    VertexBuffer(BufferAnySlice<'a>, VertexFormat, bool),
 
     /// A marker indicating a "phantom list of attributes".
     Marker {
@@ -169,29 +167,16 @@ pub enum VerticesSource<'a> {
     },
 }
 
-/// Objects that can be used as vertex sources.
-pub trait IntoVerticesSource<'a> {
-    /// Builds the `VerticesSource`.
-    fn into_vertices_source(self) -> VerticesSource<'a>;
-}
-
-impl<'a> IntoVerticesSource<'a> for VerticesSource<'a> {
-    #[inline]
-    fn into_vertices_source(self) -> VerticesSource<'a> {
-        self
-    }
-}
-
 /// Marker that can be passed instead of a buffer to indicate an empty list of buffers.
 pub struct EmptyVertexAttributes {
     /// Number of phantom vertices.
     pub len: usize,
 }
 
-impl<'a> IntoVerticesSource<'a> for EmptyVertexAttributes {
+impl<'a> From<EmptyVertexAttributes> for VerticesSource<'a> {
     #[inline]
-    fn into_vertices_source(self) -> VerticesSource<'a> {
-        VerticesSource::Marker { len: self.len, per_instance: false }
+    fn from(this: EmptyVertexAttributes) -> VerticesSource<'a> {
+        VerticesSource::Marker { len: this.len, per_instance: false }
     }
 }
 
@@ -201,20 +186,20 @@ pub struct EmptyInstanceAttributes {
     pub len: usize,
 }
 
-impl<'a> IntoVerticesSource<'a> for EmptyInstanceAttributes {
+impl<'a> From<EmptyInstanceAttributes> for VerticesSource<'a> {
     #[inline]
-    fn into_vertices_source(self) -> VerticesSource<'a> {
-        VerticesSource::Marker { len: self.len, per_instance: true }
+    fn from(this: EmptyInstanceAttributes) -> VerticesSource<'a> {
+        VerticesSource::Marker { len: this.len, per_instance: true }
     }
 }
 
 /// Marker that instructs glium that the buffer is to be used per instance.
-pub struct PerInstance<'a>(BufferAnySlice<'a>, &'a VertexFormat);
+pub struct PerInstance<'a>(BufferAnySlice<'a>, VertexFormat);
 
-impl<'a> IntoVerticesSource<'a> for PerInstance<'a> {
+impl<'a> From<PerInstance<'a>> for VerticesSource<'a> {
     #[inline]
-    fn into_vertices_source(self) -> VerticesSource<'a> {
-        VerticesSource::VertexBuffer(self.0, self.1, true)
+    fn from(this: PerInstance<'a>) -> VerticesSource<'a> {
+        VerticesSource::VertexBuffer(this.0, this.1, true)
     }
 }
 
@@ -228,26 +213,26 @@ pub trait MultiVerticesSource<'a> {
 }
 
 impl<'a, T> MultiVerticesSource<'a> for T
-    where T: IntoVerticesSource<'a>
+    where T: Into<VerticesSource<'a>>
 {
     type Iterator = IntoIter<VerticesSource<'a>>;
 
     #[inline]
     fn iter(self) -> IntoIter<VerticesSource<'a>> {
-        Some(self.into_vertices_source()).into_iter()
+        Some(self.into()).into_iter()
     }
 }
 
 macro_rules! impl_for_tuple {
     ($t:ident) => (
         impl<'a, $t> MultiVerticesSource<'a> for ($t,)
-            where $t: IntoVerticesSource<'a>
+            where $t: Into<VerticesSource<'a>>
         {
             type Iterator = IntoIter<VerticesSource<'a>>;
 
             #[inline]
             fn iter(self) -> IntoIter<VerticesSource<'a>> {
-                Some(self.0.into_vertices_source()).into_iter()
+                Some(self.0.into()).into_iter()
             }
         }
     );
@@ -255,7 +240,7 @@ macro_rules! impl_for_tuple {
     ($t1:ident, $t2:ident) => (
         #[allow(non_snake_case)]
         impl<'a, $t1, $t2> MultiVerticesSource<'a> for ($t1, $t2)
-            where $t1: IntoVerticesSource<'a>, $t2: IntoVerticesSource<'a>
+            where $t1: Into<VerticesSource<'a>>, $t2: Into<VerticesSource<'a>>
         {
             type Iterator = Chain<<($t1,) as MultiVerticesSource<'a>>::Iterator,
                                   <($t2,) as MultiVerticesSource<'a>>::Iterator>;
@@ -265,7 +250,7 @@ macro_rules! impl_for_tuple {
                                    <($t2,) as MultiVerticesSource<'a>>::Iterator>
             {
                 let ($t1, $t2) = self;
-                Some($t1.into_vertices_source()).into_iter().chain(($t2,).iter())
+                Some($t1.into()).into_iter().chain(($t2,).iter())
             }
         }
 
@@ -275,7 +260,7 @@ macro_rules! impl_for_tuple {
     ($t1:ident, $($t2:ident),+) => (
         #[allow(non_snake_case)]
         impl<'a, $t1, $($t2),+> MultiVerticesSource<'a> for ($t1, $($t2),+)
-            where $t1: IntoVerticesSource<'a>, $($t2: IntoVerticesSource<'a>),+
+            where $t1: Into<VerticesSource<'a>>, $($t2: Into<VerticesSource<'a>>),+
         {
             type Iterator = Chain<<($t1,) as MultiVerticesSource<'a>>::Iterator,
                                   <($($t2),+) as MultiVerticesSource<'a>>::Iterator>;
@@ -285,7 +270,7 @@ macro_rules! impl_for_tuple {
                                   <($($t2),+) as MultiVerticesSource<'a>>::Iterator>
             {
                 let ($t1, $($t2),+) = self;
-                Some($t1.into_vertices_source()).into_iter().chain(($($t2),+).iter())
+                Some($t1.into()).into_iter().chain(($($t2),+).iter())
             }
         }
 
@@ -308,7 +293,7 @@ pub trait Vertex: Copy + Sized {
     fn is_supported<C: ?Sized>(caps: &C) -> bool where C: CapabilitiesSource {
         let format = Self::build_bindings();
 
-        for &(_, _, ref ty, _) in format.iter() {
+        for &(_, _, _, ref ty, _) in format.iter() {
             if !ty.is_supported(caps) {
                 return false;
             }
@@ -320,8 +305,14 @@ pub trait Vertex: Copy + Sized {
 
 /// Trait for types that can be used as vertex attributes.
 pub unsafe trait Attribute: Sized {
+    /// The type of data.
+    const TYPE: AttributeType;
+
+    #[inline]
     /// Get the type of data.
-    fn get_type() -> AttributeType;
+    fn get_type() -> AttributeType {
+        Self::TYPE
+    }
 
     /// Returns true if the backend supports this type of attribute.
     #[inline]

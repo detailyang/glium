@@ -17,9 +17,11 @@ Bindless textures are a very recent feature that is supported only by recent har
 drivers. `resident` will return an `Err` if this feature is not supported.
 
 ```no_run
-# let display: glium::Display = unsafe { std::mem::uninitialized() };
-# let texture: glium::texture::Texture2d = unsafe { std::mem::uninitialized() };
+# use glutin::surface::{ResizeableSurface, SurfaceTypeTrait};
+# fn example<T>(display: glium::Display<T>, texture: glium::texture::Texture2d)
+#     where T: SurfaceTypeTrait + ResizeableSurface {
 let texture = texture.resident().unwrap();
+# }
 ```
 
 In a real application, you will likely manage a `Vec<ResidentTexture>`.
@@ -42,12 +44,14 @@ struct UniformBuffer<'a> {
 
 implement_uniform_block!(UniformBuffer<'a>, texture, some_value);
 
-# let display: glium::Display = unsafe { std::mem::uninitialized() };
-# let texture: glium::texture::bindless::ResidentTexture = unsafe { std::mem::uninitialized() };
+# use glutin::surface::{ResizeableSurface, SurfaceTypeTrait};
+# fn example<T>(display: glium::Display<T>, texture: glium::texture::bindless::ResidentTexture)
+#     where T: SurfaceTypeTrait + ResizeableSurface {
 let uniform_buffer = glium::uniforms::UniformBuffer::new(&display, UniformBuffer {
     texture: glium::texture::TextureHandle::new(&texture, &Default::default()),
     some_value: 5.0,
 });
+# }
 # }
 ```
 
@@ -57,23 +61,23 @@ do in the future). Binding the wrong type of texture may lead to undefined value
 the texture.
 
 */
-use texture::any::TextureAny;
-use TextureExt;
-use GlObject;
+use crate::texture::any::TextureAny;
+use crate::TextureExt;
+use crate::GlObject;
 
-use ContextExt;
-use gl;
+use crate::ContextExt;
+use crate::gl;
 
 use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
 
-use program::BlockLayout;
-use uniforms::AsUniformValue;
-use uniforms::LayoutMismatchError;
-use uniforms::UniformBlock;
-use uniforms::UniformValue;
-use uniforms::UniformType;
-use uniforms::SamplerBehavior;
+use crate::program::BlockLayout;
+use crate::uniforms::AsUniformValue;
+use crate::uniforms::LayoutMismatchError;
+use crate::uniforms::UniformBlock;
+use crate::uniforms::UniformValue;
+use crate::uniforms::UniformType;
+use crate::uniforms::SamplerBehavior;
 
 /// A texture that is resident in video memory. This allows you to use bindless textures in your
 /// shaders.
@@ -102,7 +106,7 @@ impl ResidentTexture {
         // store the handle in the context
         Ok(ResidentTexture {
             texture: Some(texture),
-            handle: handle,
+            handle,
         })
     }
 
@@ -177,7 +181,7 @@ impl<'a> TextureHandle<'a> {
 
 impl<'a> AsUniformValue for TextureHandle<'a> {
     #[inline]
-    fn as_uniform_value(&self) -> UniformValue {
+    fn as_uniform_value(&self) -> UniformValue<'_> {
         // TODO: u64
         unimplemented!();
     }
@@ -187,7 +191,7 @@ impl<'a> UniformBlock for TextureHandle<'a> {
     fn matches(layout: &BlockLayout, base_offset: usize)
                -> Result<(), LayoutMismatchError>
     {
-        if let &BlockLayout::BasicType { ty, offset_in_buffer } = layout {
+        if let BlockLayout::BasicType { ty, offset_in_buffer } = *layout {
             // TODO: unfortunately we have no idea what the exact type of this handle is
             //       strong typing should be considered
             //
@@ -250,9 +254,9 @@ impl<'a> UniformBlock for TextureHandle<'a> {
 
             Ok(())
 
-        } else if let &BlockLayout::Struct { ref members } = layout {
+        } else if let BlockLayout::Struct { members } = layout {
             if members.len() == 1 {
-                <TextureHandle as UniformBlock>::matches(&members[0].1, base_offset)
+                <TextureHandle<'_> as UniformBlock>::matches(&members[0].1, base_offset)
 
             } else {
                 Err(LayoutMismatchError::LayoutMismatch {
@@ -297,6 +301,6 @@ mod test {
 
     #[test]
     fn texture_handle_size() {
-        assert_eq!(mem::size_of::<TextureHandle>(), 8);
+        assert_eq!(mem::size_of::<TextureHandle<'_>>(), 8);
     }
 }

@@ -138,7 +138,7 @@ let matrix = [
 
 And here is the result:
 
-![Result](tuto-10-result.png)
+![Result](resources/tuto-10-result.png)
 
 Also note that the object keeps its regular look even when we resize the dimension and is no
 longer stretched.
@@ -146,4 +146,4 @@ longer stretched.
 If you compare this to the previous screenshot, you can also see how the teapot now looks
 much better.
 
-**[You can find the entire source code here](https://github.com/tomaka/glium/blob/master/examples/tutorial-10.rs).**
+**[You can find the entire source code here](https://github.com/glium/glium/blob/master/examples/tutorial-10.rs).**

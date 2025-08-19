@@ -2,7 +2,7 @@
 
 Let's continue with the teapot of the previous section:
 
-![The teapot](tuto-07-correct.png)
+![The teapot](resources/tuto-07-correct.png)
 
 Obviously there is something wrong with this image: we don't see any of the curves of the teapot
 except at its borders.
@@ -17,7 +17,7 @@ The idea behind gouraud shading is that if the direction of the light is perpend
 object's surface, then this surface should be bright. If the direction of the light is parallel
 to the surface, then the surface should be dark.
 
-![The theory](tuto-08-theory.png)
+![The theory](resources/tuto-08-theory.png)
 
 We are going to do this calculation one per fragment, in our fragment shader. The brightness of
 each pixel will need to be equal to `sin(angle(surface, light))`. If the light is perpendicular,
@@ -32,7 +32,7 @@ at a given vertex. The normal of a vertex can only be calculated by knowing what
 vertices are, therefore normals are usually calculated when you export a model from your 3D
 modeling software.
 
-![Normals](tuto-08-normals.png)
+![Normals](resources/tuto-08-normals.png)
 
 Since the normal is perpendicular to the surface of the object, we have to adjust the calculation.
 If the light is *parallel* to the normal, then the surface should be bright. And if the light is
@@ -64,7 +64,7 @@ void main() {
 
 We also need to multiply the normal by the matrix, but the transformations are a bit different
 and the calculation a bit weird. Since I didn't go into details about how matrices work,
-I won't go into details about why you have to use the transpose of the inverse.
+I won't go into details about why you have to use the transpose of the inverse ([click for details](https://stackoverflow.com/q/13654401)).
 
 If you recall the section about colors, the attributes that we pass from the vertex shader
 to the fragment shader are interpolated per fragment. This means that each fragment will get
@@ -114,9 +114,9 @@ target.draw((&positions, &normals), &indices, &program,
 
 And here is the result:
 
-![The result](tuto-08-result.png)
+![The result](resources/tuto-08-result.png)
 
 Now that we have brightness we can see that there are more things that are wrong with
 our rendering, this will be covered in the next sections!
 
-**[You can find the entire source code here](https://github.com/tomaka/glium/blob/master/examples/tutorial-08.rs).**
+**[You can find the entire source code here](https://github.com/glium/glium/blob/master/examples/tutorial-08.rs).**
